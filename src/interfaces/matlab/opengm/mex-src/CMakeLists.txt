@@ -26,15 +26,20 @@ if(WITH_HDF5)
     ADD_LIBRARY(addVariables MODULE model/addVariables.cpp)
     ADD_LIBRARY(addFactor MODULE model/addFactor.cpp)
     ADD_LIBRARY(addFactors MODULE model/addFactors.cpp)
-    ADD_LIBRARY(addUnaries MODULE model/addUnaries.cpp)
+    ADD_LIBRARY(addUnaries MODULE model/addUnaries.cpp) 
+    ADD_LIBRARY(addPairwiseTerms MODULE model/addPairwiseTerms.cpp)
     ADD_LIBRARY(addFunction MODULE model/addFunction.cpp)
     ADD_LIBRARY(numFactors MODULE model/numFactors.cpp)
     ADD_LIBRARY(numLabels MODULE model/numLabels.cpp)
     ADD_LIBRARY(numVariables MODULE model/numVariables.cpp)
     ADD_LIBRARY(getFactorTable MODULE model/getFactorTable.cpp)
+    ADD_LIBRARY(getPottsModel MODULE model/getPottsModel.cpp)
+    ADD_LIBRARY(setPottsModel MODULE model/setPottsModel.cpp)
+    ADD_LIBRARY(setMulticutModel MODULE model/setMulticutModel.cpp)
     ADD_LIBRARY(factorOrder MODULE model/factorOrder.cpp)
     ADD_LIBRARY(maxLabelOrder MODULE model/maxLabelOrder.cpp)
-    ADD_LIBRARY(isGrid MODULE model/isGrid.cpp)
+    ADD_LIBRARY(isGrid MODULE model/isGrid.cpp) 
+    ADD_LIBRARY(evaluate MODULE model/evaluate.cpp)
     ADD_LIBRARY(hasPottsFactor MODULE model/hasPottsFactor.cpp)
     ADD_LIBRARY(hasTruncatedAbsoluteDifferenceFactor MODULE model/hasTruncatedAbsoluteDifferenceFactor.cpp)
     ADD_LIBRARY(hasTruncatedSquaredDifferenceFactor MODULE model/hasTruncatedSquaredDifferenceFactor.cpp)
@@ -48,14 +53,19 @@ if(WITH_HDF5)
         addFactor
         addFactors
         addUnaries
+        addPairwiseTerms
         addFunction
         numFactors
         numLabels
         numVariables
         getFactorTable
+        getPottsModel
+        setPottsModel
+        setMulticutModel
         factorOrder
         maxLabelOrder
         isGrid
+        evaluate
         hasPottsFactor
         hasTruncatedAbsoluteDifferenceFactor
         hasTruncatedSquaredDifferenceFactor
@@ -75,15 +85,20 @@ if(WITH_HDF5)
         target_link_libraries(addVariables rt)  
         target_link_libraries(addFactor rt)
         target_link_libraries(addFactors rt)
-        target_link_libraries(addUnaries rt)
+        target_link_libraries(addUnaries rt) 
+        target_link_libraries(addPairwiseTerms rt)
         target_link_libraries(addFunction rt)
         target_link_libraries(numFactors rt)
         target_link_libraries(numLabels rt)
         target_link_libraries(numVariables rt)
         target_link_libraries(getFactorTable rt)
+        target_link_libraries(getPottsModel rt )
+        target_link_libraries(setPottsModel rt )
+        target_link_libraries(setMulticutModel rt )
         target_link_libraries(factorOrder rt)
         target_link_libraries(maxLabelOrder rt)
         target_link_libraries(isGrid rt)
+        target_link_libraries(evaluate rt)
         target_link_libraries(hasPottsFactor rt)
         target_link_libraries(hasTruncatedAbsoluteDifferenceFactor rt)
         target_link_libraries(hasTruncatedSquaredDifferenceFactor rt)
@@ -98,14 +113,19 @@ if(WITH_HDF5)
     target_link_libraries(addFactor handleCollector)
     target_link_libraries(addFactors handleCollector)
     target_link_libraries(addUnaries handleCollector)
+    target_link_libraries(addPairwiseTerms handleCollector)
     target_link_libraries(addFunction handleCollector)   
     target_link_libraries(numFactors handleCollector)
     target_link_libraries(numLabels handleCollector)
     target_link_libraries(numVariables handleCollector)
     target_link_libraries(getFactorTable handleCollector)
+    target_link_libraries(getPottsModel handleCollector) 
+    target_link_libraries(setPottsModel handleCollector)
+    target_link_libraries(setMulticutModel handleCollector)
     target_link_libraries(factorOrder handleCollector)
     target_link_libraries(maxLabelOrder handleCollector)
     target_link_libraries(isGrid handleCollector)
+    target_link_libraries(evaluate handleCollector)
     target_link_libraries(hasPottsFactor handleCollector)
     target_link_libraries(hasTruncatedAbsoluteDifferenceFactor handleCollector)
     target_link_libraries(hasTruncatedSquaredDifferenceFactor handleCollector)
@@ -121,6 +141,13 @@ if(WITH_HDF5)
            target_link_libraries(opengm ${CMAKE_THREAD_LIBS_INIT} ${CPLEX_LIBRARIES})
         endif(WIN32)
     endif(WITH_CPLEX)
+    if(WITH_GUROBI)
+      target_link_libraries(opengm ${CMAKE_THREAD_LIBS_INIT} 
+        ${GUROBI_LIBRARIES}
+        ${GUROBI_LIBRARY}
+        ${GUROBI_CXX_LIBRARY}
+      )
+    endif()
 
     if(WITH_QPBO)
            target_link_libraries(opengm external-library-qpbo-shared)
@@ -154,25 +181,29 @@ if(WITH_HDF5)
    INSTALL_TARGETS(/matlab/mex addVariables) 
    INSTALL_TARGETS(/matlab/mex addFactor) 
    INSTALL_TARGETS(/matlab/mex addFactors) 
-   INSTALL_TARGETS(/matlab/mex addUnaries) 
+   INSTALL_TARGETS(/matlab/mex addUnaries)  
+   INSTALL_TARGETS(/matlab/mex addPairwiseTerms) 
    INSTALL_TARGETS(/matlab/mex addFunction) 
    INSTALL_TARGETS(/matlab/mex numFactors) 
    INSTALL_TARGETS(/matlab/mex numLabels) 
    INSTALL_TARGETS(/matlab/mex numVariables) 
    INSTALL_TARGETS(/matlab/mex getFactorTable) 
+   INSTALL_TARGETS(/matlab/mex getPottsModel)
+   INSTALL_TARGETS(/matlab/mex setPottsModel)
+   INSTALL_TARGETS(/matlab/mex setMulticutModel)
    INSTALL_TARGETS(/matlab/mex factorOrder) 
    INSTALL_TARGETS(/matlab/mex maxLabelOrder) 
    INSTALL_TARGETS(/matlab/mex isGrid) 
+   INSTALL_TARGETS(/matlab/mex evaluate) 
    INSTALL_TARGETS(/matlab/mex hasPottsFactor) 
    INSTALL_TARGETS(/matlab/mex hasTruncatedAbsoluteDifferenceFactor) 
    INSTALL_TARGETS(/matlab/mex hasTruncatedSquaredDifferenceFactor) 
    INSTALL_TARGETS(/matlab/mex opengm) 
 
 else(WITH_HDF5)
-  warning("Matlab interface requires to activate WITH_HDF5")
+  message(WARNING,"Matlab interface requires to activate WITH_HDF5")
 endif(WITH_HDF5)
-else(WITHMATLAB)
-
-  warning("Matlab interface requires to activate WITH_HDF5")
+else(WITH_MATLAB)
+   message(WARNING,"Matlab interface requires to activate WITH_MATLAB")
 endif(WITH_MATLAB) 
 

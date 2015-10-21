@@ -10,6 +10,7 @@
 
 #include <opengm/opengm.hxx>
 #include <opengm/inference/trws/trws_trws.hxx>
+#include <opengm/inference/trws/trws_adsal.hxx>
 #include <opengm/inference/combilp.hxx>
 
 #include "inference_caller_base.hxx"
@@ -49,6 +50,9 @@ protected:
 
    size_t adsalParameter_lazyLPPrimalBoundComputation;
    size_t adsalParameter_lazyDerivativeComputation;
+   double adsalParameter_startSmoothingValue;
+
+   size_t trwsParameter_treeAgreeMaxStableIter;
 public:
    const static std::string name_;
    CombiLPCaller(IO& ioIn);
@@ -56,9 +60,11 @@ public:
 
 template <class IO, class GM, class ACC>
 inline CombiLPCaller<IO, GM, ACC>::CombiLPCaller(IO& ioIn)
-   : BaseClass(name_, "detailed description of the internal CombiLP caller...", ioIn) {
+   : BaseClass(name_, "detailed description of the internal CombiLP caller...", ioIn),
+     adsalParameter_startSmoothingValue(adsalParameter_.startSmoothingValue())
+     {
 	std::vector<size_t> boolVec(2); boolVec[0]=0; boolVec[1]=1;
-	std::vector<std::string> stringVec(2); stringVec[0]="GENERAL"; stringVec[1]="GRID";
+	std::vector<std::string> stringVec(3); stringVec[0]="GENERAL"; stringVec[1]="GRID"; stringVec[2]="EDGE";
 	std::vector<std::string> lpsolver(2); lpsolver[0]="TRWSi"; lpsolver[1]="ADSal";
 	addArgument(StringArgument<>(lpsolvertype, "", "lpsolve", "Select local polytope solver : TRWSi or ADSal. Default is TRWSi", lpsolver.front(), lpsolver));
 	addArgument(BoolArgument(parameter_verbose, "", "debugverbose", "If set the solver will output debug information to the stdout"));
@@ -73,13 +79,14 @@ inline CombiLPCaller<IO, GM, ACC>::CombiLPCaller(IO& ioIn)
 	addArgument(Size_TArgument<>(LPSolver_maxNumberOfIterations, "", "maxIt", "Maximum number of iterations.",true));
 	addArgument(DoubleArgument<>(LPSolver_parameter_precision, "", "precision", "Duality gap based absolute precision to be obtained. Default is 0.0. Use parameter --relative to select the relative one",(double)0.0));
 	addArgument(Size_TArgument<>(LPSolver_relativePrecision, "", "relative", "If set to 1 , then the parameter --precision determines a relative precision value. Default is an absolute one",(size_t)0,boolVec));
-	addArgument(StringArgument<>(LPSolver_stringDecompositionType, "d", "decomposition", "Select decomposition: GENERAL or GRID. Default is GENERAL", false,stringVec));
+	addArgument(StringArgument<>(LPSolver_stringDecompositionType, "d", "decomposition", "Select decomposition: GENERAL, GRID or EDGE. Default is GENERAL", false,stringVec));
 	addArgument(Size_TArgument<>(LPSolver_slowComputations, "", "slowComputations", "If set to 1 the type of the pairwise factors (Potts for now, will be extended to truncated linear and quadratic) will NOT be used to speed up computations of the TRWS subsolver.",(size_t)0,boolVec));
 	addArgument(Size_TArgument<>(LPSolver_noNormalization, "", "noNormalization", "If set to 1 the canonical normalization is NOT used in the TRWS subsolver.",(size_t)0,boolVec));
 
 	// specific TRWSi parameters
 	addArgument(DoubleArgument<>(trwsParameter_.minRelativeDualImprovement(), "", "TRWS_minRelativeDualImprovement", "TRWSi::The minimal improvement of the dual function. If the actual improvement is less, it stops the solver",false));
-	addArgument(Size_TArgument<>(trwsParameter_.treeAgreeMaxStableIter_, "", "treeAgreeMaxStableIter", "Maximum number of iterations after the last improvements of the tree agreement.",false));
+	//addArgument(Size_TArgument<>(trwsParameter_.treeAgreeMaxStableIter_, "", "treeAgreeMaxStableIter", "Maximum number of iterations after the last improvements of the tree agreement.",false));
+	addArgument(Size_TArgument<>(trwsParameter_treeAgreeMaxStableIter, "", "treeAgreeMaxStableIter", "Maximum number of iterations after the last improvements of the tree agreement.",(size_t)0));
 
 	// specific ADSal parameters
 	addArgument(Size_TArgument<>(adsalParameter_.numberOfInternalIterations(), "", "ADSal_numberOfInternalIterations", "ADSal::Number of internal iterations (between changes of smoothing).",false));
@@ -87,7 +94,8 @@ inline CombiLPCaller<IO, GM, ACC>::CombiLPCaller(IO& ioIn)
 	addArgument(Size_TArgument<>(adsalParameter_lazyLPPrimalBoundComputation, "", "ADSal_lazyLPPrimalBoundComputation", "ADSal::If set to 1 the fractal primal bound is not computed when the primal bound improved over the last outer iteration",(size_t)0,boolVec));
     addArgument(Size_TArgument<>(adsalParameter_lazyDerivativeComputation, "", "ADSal_lazyDerivativeComputation", "ADSal::If set to 1 the derivative w.r.t. smoothing is computed only when the fractal primal bound computation is needed",(size_t)0,boolVec));
 	addArgument(DoubleArgument<>(adsalParameter_.smoothingDecayMultiplier(), "", "ADSal_smoothingDecayMultiplier", "ADSal::Smoothing decay parameter defines the rate of a forced smoothing decay. Default is <= 0, which switches off the forced decay",false));
-	addArgument(DoubleArgument<>(adsalParameter_.startSmoothingValue(), "", "ADSal_startSmoothing", "ADSal::Starting smoothing value. Default is automatic selection",false));
+//	addArgument(DoubleArgument<>(adsalParameter_.startSmoothingValue(), "", "ADSal_startSmoothing", "ADSal::Starting smoothing value. Default is automatic selection",false));
+	addArgument(DoubleArgument<>(adsalParameter_startSmoothingValue, "", "ADSal_startSmoothing", "ADSal::Starting smoothing value. Default is automatic selection",false));
 	addArgument(Size_TArgument<>(adsalParameter_.maxNumberOfPresolveIterations(), "", "ADSal_maxNumberOfPresolveIterations", "ADSal::The number of TRWS iterations used a a presolver of the ADSal algorithm",false));
 	addArgument(DoubleArgument<>(adsalParameter_.presolveMinRelativeDualImprovement(), "", "ADSal_presolveMinRelativeDualImprovement", "ADSal::The minimal improvement of the dual function in presolver. If the actual improvement is less, it stops the presolver",false));
 	addArgument(Size_TArgument<>(adsalParameter_.maxPrimalBoundIterationNumber(), "", "ADSal_maxPrimalBoundIterationNumber", "ADSal::The maximal iteration number of the transportation solver for estimating the primal fractal solution",false));
@@ -109,11 +117,13 @@ inline void CombiLPCaller<IO, GM, ACC>::runImpl(GM& model, OutputBase& output, c
 	   typename CombiLPType::Parameter parameter_;
 	   typename LPSOLVER::Parameter lpsolverParameter_(trwsParameter_);
 
+	   lpsolverParameter_.setTreeAgreeMaxStableIter(trwsParameter_treeAgreeMaxStableIter);
 	   lpsolverParameter_.maxNumberOfIterations_=LPSolver_maxNumberOfIterations;
 	   lpsolverParameter_.precision()=LPSolver_parameter_precision;
 	   lpsolverParameter_.isAbsolutePrecision()=(LPSolver_relativePrecision==0);
-	   lpsolverParameter_.decompositionType()=(LPSolver_stringDecompositionType.compare("GRID")==0 ? trws_base::DecompositionStorage<GM>::GRIDSTRUCTURE :
-			   trws_base::DecompositionStorage<GM>::GENERALSTRUCTURE );
+//	   lpsolverParameter_.decompositionType()=(LPSolver_stringDecompositionType.compare("GRID")==0 ? trws_base::DecompositionStorage<GM>::GRIDSTRUCTURE :
+//			   trws_base::DecompositionStorage<GM>::GENERALSTRUCTURE );
+	   lpsolverParameter_.decompositionType()=trws_base::DecompositionStorage<GM>::getStructureType(LPSolver_stringDecompositionType);
 	   lpsolverParameter_.fastComputations()=(LPSolver_slowComputations==0);
 	   lpsolverParameter_.canonicalNormalization()=(LPSolver_noNormalization==0);
 
@@ -136,16 +146,17 @@ inline void CombiLPCaller<IO, GM, ACC>::runImpl(GM& model, OutputBase& output, c
 
 	   adsalParameter_.lazyLPPrimalBoundComputation()=(adsalParameter_lazyLPPrimalBoundComputation==1);
 	   adsalParameter_.lazyDerivativeComputation()=(adsalParameter_lazyLPPrimalBoundComputation==1);
+	   adsalParameter_.setStartSmoothingValue(adsalParameter_startSmoothingValue);
 
 	   typename LPSOLVER::Parameter lpsolverParameter_(adsalParameter_);
 
 	   lpsolverParameter_.maxNumberOfIterations()=LPSolver_maxNumberOfIterations;
-	   lpsolverParameter_.precision()=LPSolver_parameter_precision;
+	   lpsolverParameter_.setPrecision(LPSolver_parameter_precision);
 	   lpsolverParameter_.isAbsolutePrecision()=(LPSolver_relativePrecision==0);
 	   lpsolverParameter_.decompositionType()=(LPSolver_stringDecompositionType.compare("GRID")==0 ? trws_base::DecompositionStorage<GM>::GRIDSTRUCTURE :
 			   trws_base::DecompositionStorage<GM>::GENERALSTRUCTURE );
-	   lpsolverParameter_.fastComputations()=(LPSolver_slowComputations==0);
-	   lpsolverParameter_.canonicalNormalization()=(LPSolver_noNormalization==0);
+	   lpsolverParameter_.setFastComputations((LPSolver_slowComputations==0));
+	   lpsolverParameter_.setCanonicalNormalization((LPSolver_noNormalization==0));
 
 	   parameter_.verbose_=lpsolverParameter_.verbose_=parameter_verbose;
 	   parameter_.reparametrizedModelFileName_=parameter_reparametrizedFileName;

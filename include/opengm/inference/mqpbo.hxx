@@ -7,7 +7,7 @@
 #include <iostream>
 
 #include "opengm/opengm.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 #include "opengm/inference/inference.hxx"
 #include <opengm/utilities/metaprogramming.hxx>
 #include "opengm/utilities/tribool.hxx"
@@ -41,9 +41,9 @@ namespace opengm {
       typedef GM GmType;
       typedef GM GraphicalModelType;
       OPENGM_GM_TYPE_TYPEDEFS;
-      typedef VerboseVisitor<MQPBO<GM, ACC> > VerboseVisitorType;
-      typedef EmptyVisitor<MQPBO<GM, ACC> >   EmptyVisitorType; 
-      typedef TimingVisitor<MQPBO<GM, ACC> >  TimingVisitorType; 
+      typedef visitors::VerboseVisitor<MQPBO<GM, ACC> > VerboseVisitorType;
+      typedef visitors::EmptyVisitor<MQPBO<GM, ACC> >   EmptyVisitorType; 
+      typedef visitors::TimingVisitor<MQPBO<GM, ACC> >  TimingVisitorType; 
       typedef ValueType                       GraphValueType;
       
       enum PermutationType {NONE, RANDOM, MINMARG};
@@ -424,12 +424,15 @@ namespace opengm {
          }
       }
       else if(permutationType==MINMARG){
-         typedef typename opengm::GraphicalModel<ValueType, OperatorType, opengm::ViewFixVariablesFunction<GM>, typename GM::SpaceType> SUBGM;
+
+         typedef typename opengm::GraphicalModel<ValueType, OperatorType, opengm::ViewFixVariablesFunction<GM>, DiscreteSpace<IndexType, LabelType> > SUBGM;
+
+
 
          std::vector<LabelType> numberOfLabels(varR2Var.size());
          for(size_t i=0; i<varR2Var.size(); ++i)
             numberOfLabels[i] = gm_.numberOfLabels(varR2Var[i]);
-         typename GM::SpaceType subspace(numberOfLabels.begin(),numberOfLabels.end());
+         typename SUBGM::SpaceType subspace(numberOfLabels.begin(),numberOfLabels.end());
          SUBGM gm(subspace);
          for(IndexType f=0; f<gm_.numberOfFactors();++f){
             std::vector<PositionAndLabel<IndexType, LabelType> > fixed;
@@ -504,7 +507,7 @@ namespace opengm {
             AddUnaryTerm((int) (varROffset[varR]+l), 0.0, 0.0);
          } 
          for(LabelType l=1; l+1<gm_.numberOfLabels(var); ++l){
-            AddPairwiseTerm((int) (varROffset[varR]+l-1), (int) (varROffset[varR]+l), 0.0,  1000000.0, 0.0, 0.0);
+            AddPairwiseTerm((int) (varROffset[varR]+l-1), (int) (varROffset[varR]+l), 0.0, 1e30, 0.0, 0.0);
          }
       }
       /*      
@@ -796,7 +799,8 @@ namespace opengm {
       VisitorType& visitor
    )
    { 
-
+      visitor.addLog("optimality");
+      visitor.addLog("optimalityV");
       if(param_.rounds_>1 && param_.strongPersistency_==false)
          std::cout << "WARNING: Using weak persistency and several rounds may lead to wrong results if solution is not unique!"<<std::endl;
 
@@ -821,11 +825,10 @@ namespace opengm {
                testQuess(l);
                double xoptimality = optimality(); 
                double xoptimalityV = optimalityV();
-               #ifdef MQPBO_PYTHON_WRAPPER_HACK
-               visitor(*this,value(),bound());
-               #else
-               visitor.visit(value(),bound(),"partialOptimality",xoptimality,"partialOptimalityV",xoptimalityV);
-               #endif
+               visitor(*this);
+               visitor.log("optimality",xoptimality);
+               visitor.log("optimalityV",xoptimalityV);
+
                //std::cout << "partialOptimality  : " << optimality() << std::endl; 
             }
          }
@@ -854,11 +857,10 @@ namespace opengm {
             testPermutation(param_.permutationType_);
             double xoptimality = optimality();
             double xoptimalityV = optimalityV();
-            #ifdef MQPBO_PYTHON_WRAPPER_HACK
-            visitor(*this,value(),bound());
-            #else
-            visitor.visit(value(),bound(),"partialOptimality",xoptimality,"partialOptimalityV",xoptimalityV);
-            #endif
+            visitor(*this);
+            visitor.log("optimality",xoptimality);
+            visitor.log("optimalityV",xoptimalityV);
+
             //std::cout << "partialOptimality  : " << optimality() << std::endl;
          }
       }

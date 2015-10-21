@@ -5,7 +5,9 @@
 #include "opengm/graphicalmodel/graphicalmodel.hxx"
 #include "opengm/operations/minimizer.hxx"
 #include "opengm/inference/inference.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
+#include "opengm/inference/auxiliary/lp_reparametrization.hxx"
+
 
 #include "Fast_PD.h"
 
@@ -29,9 +31,9 @@ namespace opengm {
          typedef GM                              GraphicalModelType;
          typedef opengm::Minimizer               AccumulationType;
          OPENGM_GM_TYPE_TYPEDEFS;
-         typedef EmptyVisitor<FastPD<GM> > EmptyVisitorType;
-         typedef VerboseVisitor<FastPD<GM> > VerboseVisitorType;
-         typedef TimingVisitor<FastPD<GM> > TimingVisitorType;
+         typedef visitors::VerboseVisitor<FastPD<GM> > VerboseVisitorType;
+         typedef visitors::EmptyVisitor<FastPD<GM> >   EmptyVisitorType;
+         typedef visitors::TimingVisitor<FastPD<GM> >  TimingVisitorType;
 
          ///Parameter
          struct Parameter {
@@ -55,6 +57,9 @@ namespace opengm {
          InferenceTermination arg(std::vector<LabelType>&, const size_t& = 1) const;
          typename GM::ValueType bound() const;
          typename GM::ValueType value() const;
+
+         typedef LPReparametrizer<GM,opengm::Minimizer> ReparametrizerType;
+         ReparametrizerType * getReparametrizer(const typename ReparametrizerType::Parameter& params=typename ReparametrizerType::Parameter())const;
 
       protected:
          const GraphicalModelType& gm_;
@@ -173,9 +178,67 @@ namespace opengm {
          return NORMAL;
       }
 
+      // == OLD ==
+      //template<class GM>
+      //inline typename GM::ValueType FastPD<GM>::bound() const {
+      //   return lowerBound_;
+      //}
+
       template<class GM>
-      inline typename GM::ValueType FastPD<GM>::bound() const {
-         return lowerBound_;
+      typename GM::ValueType FastPD<GM>::bound()const
+      {
+         ValueType boundValue=0;
+         IndexType pwId=0;
+         std::vector<IndexType> factorId2pwId(gm_.numberOfFactors(),std::numeric_limits<IndexType>::max());
+         for (IndexType factorId=0;factorId<gm_.numberOfFactors();++factorId)
+            if (gm_[factorId].numberOfVariables()==2)
+               factorId2pwId[factorId]=pwId++;
+
+         for (IndexType factorId=0;factorId<gm_.numberOfFactors();++factorId)
+         {
+            const typename GM::FactorType& f=gm_[factorId];
+            ValueType res=std::numeric_limits<ValueType>::infinity(), res1;
+            if (f.numberOfVariables()==1)
+            {
+               IndexType varId=f.variableIndex(0);
+               for (LabelType label=0;label<gm_.numberOfLabels(varId);++label)
+               {
+      		  res1=f(&label);
+                  for (IndexType i=0;i<gm_.numberOfFactors(varId);++i)
+                  {
+                     IndexType fId=gm_.factorOfVariable(varId,i);
+                     if (gm_[fId].numberOfVariables()==2)
+                     {
+                        OPENGM_ASSERT(factorId2pwId[fId]<std::numeric_limits<IndexType>::max());
+                        if (gm_[fId].variableIndex(0)==varId)
+                           res1+=pdInference_->_y[label*numPairs_+factorId2pwId[fId]];
+                        else
+                           res1-=pdInference_->_y[label*numPairs_+factorId2pwId[fId]];
+                     }
+                  }
+                  res=std::min(res,res1);
+               }
+            }else if (f.numberOfVariables()==2)
+            {
+               pwId=factorId2pwId[factorId];
+               OPENGM_ASSERT(pwId<std::numeric_limits<IndexType>::max());
+               IndexType varId0=f.variableIndex(0),varId1=f.variableIndex(1);
+               for (LabelType label0=0;label0<gm_.numberOfLabels(varId0);++label0)
+                  for (LabelType label1=0;label1<gm_.numberOfLabels(varId1);++label1)
+                  {
+                     std::vector<LabelType> labels(2); labels[0]=label0; labels[1]=label1;
+                     res1=f(labels.begin())-pdInference_->_y[label0*numPairs_+pwId]+pdInference_->_y[label1*numPairs_+pwId];
+                     res=std::min(res,res1);
+                  }
+            }else{
+               AccumulationType::ineutral(boundValue);
+               return boundValue;
+               //throw std::runtime_error("FastPD: only factors of order 1 and 2 are supported!");
+            }
+            boundValue+=res;
+         }
+
+         return boundValue;
       }
 
       template<class GM>
@@ -311,6 +374,46 @@ namespace opengm {
          OPENGM_ASSERT(currentPair == numPairs_);
          return true;
       }
+
+      template<class GM>
+      inline typename FastPD<GM>::ReparametrizerType * FastPD<GM>::getReparametrizer(const typename ReparametrizerType::Parameter& params)const
+      {
+     	 ReparametrizerType* pReparametrizer=new ReparametrizerType(gm_);
+
+     	ReparametrizerType lpreparametrizer(gm_);
+     	typename ReparametrizerType::RepaStorageType& reparametrization=pReparametrizer->Reparametrization();
+        typedef typename ReparametrizerType::RepaStorageType::uIterator uIterator;
+
+          //counting p/w factors
+        IndexType pwNum=0;
+          for (IndexType factorId=0;factorId<gm_.numberOfFactors();++factorId)
+              if (gm_[factorId].numberOfVariables()==2) ++pwNum;
+
+          const fastPDLib::CV_Fast_PD::Real* y=pdInference_->_y;
+
+          IndexType pwId=0;
+          for (IndexType factorId=0;factorId<gm_.numberOfFactors();++factorId)
+          {
+              if (gm_[factorId].numberOfVariables()!=2) continue;
+              for (IndexType i=0;i<2;++i)
+              {
+                  std::pair<uIterator,uIterator> iter=reparametrization.getIterators(factorId,i);
+                  LabelType label=0;
+                  ValueType mul=(i==0 ? 1 : -1);
+                  for (;iter.first!=iter.second;++iter.first)
+                  {
+                      *iter.first=-mul*y[label*pwNum+pwId];
+                      ++label;
+                  }
+              }
+
+              ++pwId;
+          }
+
+
+         return pReparametrizer;
+      }
+
 
    } // namespace external
 } // namespace opengm

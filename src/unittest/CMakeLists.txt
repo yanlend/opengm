@@ -2,6 +2,15 @@
 add_definitions(-DOPENGM_DEBUG)
 
 if(BUILD_TESTING)
+
+   add_executable(test-partitions test_partitions.cxx ${headers})
+   add_test(test-partitions ${CMAKE_CURRENT_BINARY_DIR}/test-partitions)
+
+
+   add_executable(test-gm-learning-functions test_gm_learning_functions.cxx ${headers})
+   add_test(test-gm-learning-functions ${CMAKE_CURRENT_BINARY_DIR}/test-gm-learning-functions)
+
+
    add_executable(test-graphicalmodelmanipulator test_graphicalmodelmanipulator.cxx ${headers})
    add_test(test-graphicalmodelmanipulator ${CMAKE_CURRENT_BINARY_DIR}/test-graphicalmodelmanipulator)
 
@@ -69,6 +78,45 @@ if(BUILD_TESTING)
       target_link_libraries(test-io-hdf5 ${HDF5_LIBRARIES})
       add_test(test-io-hdf5 ${CMAKE_CURRENT_BINARY_DIR}/test-io-hdf5)
    endif()
+
+   ADD_EXECUTABLE(test-memoryinfo test_memoryinfo.cxx ${headers})
+   add_test(test-memoryinfo ${CMAKE_CURRENT_BINARY_DIR}/test-memoryinfo) 
+
+   add_executable(test-lp-solver test_lp_solver.cxx ${headers})
+   add_test(test-lp-solver ${CMAKE_CURRENT_BINARY_DIR}/test-lp-solver) 
+   if(WITH_CPLEX)
+      if(WIN32)
+         target_link_libraries(test-lp-solver wsock32.lib ${CPLEX_LIBRARIES} )
+      else(WIN32)
+         target_link_libraries(test-lp-solver ${CMAKE_THREAD_LIBS_INIT} ${CPLEX_LIBRARIES} )
+      endif(WIN32)
+   endif(WITH_CPLEX)
+   if(WITH_GUROBI)
+      target_link_libraries(test-lp-solver
+         ${GUROBI_LIBRARIES}
+         ${GUOBI_CXX_LIBRARY}  
+         ${GUROBI_LIBRARY}
+         ${CMAKE_THREAD_LIBS_INIT}
+      )
+   endif(WITH_GUROBI)
+   if(LINK_RT)
+      target_link_libraries(test-lp-solver rt)
+   endif(LINK_RT)
+   
+   add_executable(test-indicator-variable test_indicator_variable.cxx ${headers})
+   add_test(test-indicator-variable ${CMAKE_CURRENT_BINARY_DIR}/test-indicator-variable)
+   
+   add_executable(test-linear-constraint test_linear_constraint.cxx ${headers})
+   add_test(test-linear-constraint ${CMAKE_CURRENT_BINARY_DIR}/test-linear-constraint)
+   
+   add_executable(test-subsequence-iterator test_subsequence_iterator.cxx ${headers})
+   add_test(test-subsequence-iterator ${CMAKE_CURRENT_BINARY_DIR}/test-subsequence-iterator)
+   
+   add_executable(test-lp-functiontransfer test_lp_functiontransfer.cxx ${headers})
+   add_test(test-lp-functiontransfer ${CMAKE_CURRENT_BINARY_DIR}/test-lp-functiontransfer)
+   
+   add_executable(test-canonicalview test_canonicalview.cxx ${headers})
+   add_test(test-canonicalview ${CMAKE_CURRENT_BINARY_DIR}/test-canonicalview)
 
    add_subdirectory(inference)
 endif()

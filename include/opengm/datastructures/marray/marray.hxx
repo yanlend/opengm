@@ -3,6 +3,7 @@
 #define MARRAY_HXX
 
 #include <cassert>
+#include <cstddef>
 #include <stdexcept> // runtime_error
 #include <limits>
 #include <string>
@@ -107,7 +108,10 @@ namespace marray_detail {
 
     // assertion testing
     template<class A> inline void Assert(A assertion) {
+#ifdef NDEBUG
+#else
         if(!assertion) throw std::runtime_error("Assertion failed.");
+#endif
     }
 
     // geometry of views
@@ -472,12 +476,7 @@ public:
     // STL random access iterator typedefs
     typedef typename std::random_access_iterator_tag iterator_category;
     typedef T value_type;
-    //gcc 4.6 bugfix
-    #if __GNUC__ == 4 && __GNUC_MINOR__ >= 6
     typedef std::ptrdiff_t difference_type;
-    #else
-    typedef ptrdiff_t difference_type;
-    #endif
     typedef typename marray_detail::IfBool<isConst, const T*, T*>::type pointer;
     typedef typename marray_detail::IfBool<isConst, const T&, T&>::type reference;
 

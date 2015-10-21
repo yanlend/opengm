@@ -12,7 +12,7 @@
 #include "opengm/opengm.hxx"
 #include "opengm/inference/inference.hxx"
 #include "opengm/inference/lazyflipper.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 #include "opengm/operations/minimizer.hxx"
 #include "opengm/utilities/tribool.hxx"
 
@@ -29,9 +29,9 @@ public:
    typedef ACC AccumulationType;
    typedef GM GraphicalModelType;
    OPENGM_GM_TYPE_TYPEDEFS;
-   typedef VerboseVisitor<InfAndFlip<GM, ACC, INF> > VerboseVisitorType;
-   typedef EmptyVisitor<InfAndFlip<GM, ACC, INF> > EmptyVisitorType;
-   typedef TimingVisitor<InfAndFlip<GM, ACC, INF> > TimingVisitorType;
+   typedef visitors::VerboseVisitor<InfAndFlip<GM, ACC, INF> > VerboseVisitorType;
+   typedef visitors::EmptyVisitor<InfAndFlip<GM, ACC, INF> >   EmptyVisitorType;
+   typedef visitors::TimingVisitor<InfAndFlip<GM, ACC, INF> >  TimingVisitorType;
 
    struct Parameter
    {
@@ -125,19 +125,21 @@ InfAndFlip<GM, ACC, INF>::infer(
    LazyFlipper<GM,ACC> lf(gm_);
 
    visitor.begin(*this);
-   if(para_.warmStartableInf_ && !sp_.size()==0)
+   if(para_.warmStartableInf_ && !(sp_.size()==0))
       inf.setStartingPoint(sp_.begin());
    inf.infer();
    inf.arg(state_);
-   value_=inf.value();
+   value_ = gm_.evaluate(state_); 
+   //value_=inf.value();
    bound_=inf.bound();
-   visitor.visit(*this);
-
-
+   if( visitor(*this) != visitors::VisitorReturnFlag::ContinueInf ){
+      visitor.end(*this);
+      return NORMAL;
+   }
 
    if(para_.maxSubgraphSize_>0){
       lf.setMaxSubgraphSize(para_.maxSubgraphSize_);
-      if(!sp_.size()==0)
+      if(sp_.size()!=gm_.numberOfVariables())
          lf.setStartingPoint(state_.begin());
       else{
          if(ACC::bop(value_,spValue_))
@@ -145,9 +147,11 @@ InfAndFlip<GM, ACC, INF>::infer(
          else
             lf.setStartingPoint(sp_.begin());
       }
+      std::cout << "start flipping ..."<<std::endl;
       lf.infer();
       lf.arg(state_);
-      value_=lf.value(); 
+      value_ = gm_.evaluate(state_); 
+      //value_=lf.value(); //<- numerical bug in LF 
    }
    visitor.end(*this);
 

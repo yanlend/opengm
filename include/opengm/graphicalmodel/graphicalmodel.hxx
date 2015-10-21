@@ -50,6 +50,9 @@ template<class FUNCTION_INDEX_TYPE, class FUNCTION_TYPE_INDEX_TYPE>
 
 /// \brief GraphicalModel
 ///
+/// Implements the graphical model interface
+/// see also for factorgraph_view
+///
 /// \ingroup graphical_models
 template<
    class T, 
@@ -146,6 +149,25 @@ public:
       factorsVis_.reserve(size);
    }
 
+
+   LabelType maxNumberOfLabels()const{
+        LabelType mx=0;
+        for(size_t i=0; i<numberOfVariables(); ++i)
+            mx = std::max(numberOfLabels(i), mx);
+        return mx;
+   }
+
+   //template<class FUNCTOR>
+   //void callFunctor(
+   //   const IndexType factorIndex,
+   //   FUNCTOR & functor
+   //){
+   //      const FactorType & factor = this->operator[](factorIndex);
+   //      return opengm::detail_graphical_model::FunctionWrapper<NrOfFunctionTypes>::
+   //      callFunctor(this, factor.functionIndex_,factor.functionTypeId_,
+   //                  factorIndex,functor);
+   //}
+
    
 protected:
    template<size_t FUNCTION_INDEX>
@@ -159,6 +181,7 @@ private:
    std::vector<RandomAccessSet<IndexType> > variableFactorAdjaceny_;
    std::vector<FactorType> factors_;
    std::vector<IndexType>  factorsVis_;
+   IndexType order_;
 
 
 template<size_t>
@@ -209,7 +232,7 @@ struct FunctionIdentification {
    FunctionIndexType functionIndex;
    FunctionTypeIndexType functionType;
 };
-
+/// \endcond
 
 /// \brief return the order (number of factors) connected to a specific variable
 /// \sa FactorGraph
@@ -284,7 +307,8 @@ inline GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::GraphicalModel()
    functionDataField_(), 
    variableFactorAdjaceny_(), 
    factors_(0, FactorType(this)),
-   factorsVis_()
+   factorsVis_(),
+   order_(0)
 {
    //this->assignGm(this);    
 }
@@ -298,7 +322,8 @@ inline GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::GraphicalModel
    functionDataField_(gm.functionDataField_), 
    variableFactorAdjaceny_(gm.variableFactorAdjaceny_), 
    factors_(gm.numberOfFactors()),
-   factorsVis_(gm.factorsVis_)
+   factorsVis_(gm.factorsVis_),
+   order_(gm.factorOrder())
 {
    for(size_t i = 0; i<this->factors_.size(); ++i) {
       factors_[i].gm_=this;
@@ -326,7 +351,8 @@ GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::GraphicalModel
 :  space_(space), 
    functionDataField_(), 
    variableFactorAdjaceny_(space.numberOfVariables()), 
-   factors_(0, FactorType(this)) 
+   factors_(0, FactorType(this)),
+   order_(0)
 {  
    if(reserveFactorsPerVariable==0){
       variableFactorAdjaceny_.resize(space.numberOfVariables());
@@ -421,16 +447,19 @@ GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::evaluate
 ) const 
 {
    ValueType v;
+   //std::vector<LabelType> factor_state(numberOfVariables()+1);
+   std::vector<LabelType> factor_state(factorOrder()+1);
    OperatorType::neutral(v);
    for(size_t j = 0; j < factors_.size(); ++j) {
-      size_t nvar = factors_[j].numberOfVariables();
-      if(factors_[j].numberOfVariables() == 0) {
-         nvar = 1;
-      };
-      std::vector<size_t> factor_state(nvar, static_cast<size_t> (0));
+      //size_t nvar = factors_[j].numberOfVariables();
+      //if(factors_[j].numberOfVariables() == 0) {
+      //   nvar = 1;
+      //};
+      //factor_state.resize(nvar, static_cast<LabelType> (0));
+      factor_state[0]=0;
       for(size_t i = 0; i < factors_[j].numberOfVariables(); ++i) {
-         OPENGM_ASSERT_OP( static_cast<LabelType>(labels[factors_[j].variableIndex(i)]) 
-            ,< ,static_cast<LabelType>(factors_[j].numberOfLabels(i)));
+         // OPENGM_ASSERT_OP( static_cast<LabelType>(labels[factors_[j].variableIndex(i)]) 
+         //   ,< ,static_cast<LabelType>(factors_[j].numberOfLabels(i)));
          factor_state[i] = labels[factors_[j].variableIndex(i)];
       }
       OperatorType::op(factors_[j](factor_state.begin()), v);
@@ -468,12 +497,18 @@ template<class T, class OPERATOR, class FUNCTION_TYPE_LIST, class SPACE>
 inline size_t
 GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::factorOrder() const 
 {
+   for(size_t i = 0; i < numberOfFactors(); i++) {
+      OPENGM_ASSERT(factors_[i].numberOfVariables()<=order_);
+   } 
+   return order_;
+/*
    size_t factorOrder = 0;
    for(size_t i = 0; i < numberOfFactors(); i++) {
       if(factors_[i].numberOfVariables() > factorOrder)
          factorOrder = factors_[i].numberOfVariables();
    }
    return factorOrder;
+*/
 }
 
 /// \brief add a function to the graphical model
@@ -624,7 +659,7 @@ GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::addFactor
    ITERATOR end
 ) 
 {
-
+  
    const IndexType indexInVisVector = factorsVis_.size();
    IndexType factorOrder = 0;
    while(begin!=end){
@@ -632,7 +667,7 @@ GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::addFactor
       ++begin;
       ++factorOrder;
    }
-
+   order_ = std::max(order_,factorOrder);
 
    // create factor
    //FactorType factor();
@@ -684,6 +719,7 @@ GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::addFactorNonFinalized
       ++begin;
       ++factorOrder;
    }
+   order_ = std::max(order_,factorOrder);
 
 
    // create factor
@@ -741,6 +777,7 @@ GraphicalModel<T, OPERATOR, FUNCTION_TYPE_LIST, SPACE>::operator=
       this->factors_.resize(gm.factors_.size());
       this->variableFactorAdjaceny_=gm.variableFactorAdjaceny_;    
       this->factorsVis_ = gm.factorsVis_; 
+      this->order_ = gm.order_;
       for(size_t i = 0; i<this->factors_.size(); ++i) {  
          factors_[i].gm_=this;
          factors_[i].functionIndex_=gm.factors_[i].functionIndex_;

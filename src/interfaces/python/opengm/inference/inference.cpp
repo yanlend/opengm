@@ -16,7 +16,7 @@
 #include "pyAstar.hxx"
 
 
-#include "pyGibbs.hxx"
+//#include "pyGibbs.hxx"
 #include "pyBruteforce.hxx"
 #include "pyLazyflipper.hxx"
 #include "pyDynp.hxx"
@@ -68,10 +68,19 @@
 #include  "pyAeFusion.hxx"
 #endif
 
+
+
+#if defined(WITH_QPBO) || defined(WITH_CPLEX) || defined(WITH_BLOSSOM5) && defined(WITH_PLANARITY)
+#include "pyCgc.hxx"
+#include "pyIntersectionBased.hxx"
+#endif
+
+
 //#include "pyPbp.hxx"
-//#include "pySelfFusion.hxx"
 
 #include "pyFusionMoves.hxx"
+#include "pySelfFusion.hxx"
+#include "pyFusionBased.hxx"
 
 //#include "pySwendsenWang.hxx"
 
@@ -83,7 +92,9 @@
 #include <opengm/python/numpyview.hxx>
 #include <opengm/python/pythonfunction.hxx>
 
-
+// include the LPDef symbols only once!
+#undef OPENGM_LPDEF_NO_SYMBOLS
+#include <opengm/inference/auxiliary/lpdef.hxx>
 
 using namespace boost::python;
 
@@ -132,12 +143,12 @@ BOOST_PYTHON_MODULE_INIT(_inference) {
          export_bp<opengm::python::GmAdder,opengm::Minimizer>();
          export_trbp<opengm::python::GmAdder,opengm::Minimizer>();
          export_astar<opengm::python::GmAdder,opengm::Minimizer>();
-         export_gibbs<opengm::python::GmAdder,opengm::Minimizer>();
+         //export_gibbs<opengm::python::GmAdder,opengm::Minimizer>();
          
          export_dual_decomposition_subgradient<opengm::python::GmAdder,opengm::Minimizer>();
 
          //export_self_fusion<opengm::python::GmAdder,opengm::Minimizer>();
-         //export_fusion_moves<opengm::python::GmAdder,opengm::Minimizer>();
+         export_fusion_moves<opengm::python::GmAdder,opengm::Minimizer>();
          
          #ifdef WITH_CONICBUNDLE
             //export_dual_decomposition_bundle<opengm::python::GmAdder,opengm::Minimizer>();
@@ -169,6 +180,15 @@ BOOST_PYTHON_MODULE_INIT(_inference) {
          export_multicut<opengm::python::GmAdder,opengm::Minimizer>();
          #endif
 
+
+
+        #if defined(WITH_QPBO) || defined(WITH_CPLEX) || defined(WITH_BLOSSOM5) && defined(WITH_PLANARITY)
+        export_cgc<opengm::python::GmAdder,opengm::Minimizer>();
+        //export_intersection_based<opengm::python::GmAdder,opengm::Minimizer>();
+        #endif
+
+
+
          //export_lp_inference<opengm::python::GmAdder,opengm::Minimizer>();
 
          #ifdef WITH_LIBDAI
@@ -186,6 +206,9 @@ BOOST_PYTHON_MODULE_INIT(_inference) {
          #ifdef WITH_AD3
          export_ad3<opengm::python::GmAdder,opengm::Minimizer>();
          #endif
+
+         export_self_fusion<opengm::python::GmAdder,opengm::Minimizer>();
+         export_fusion_based<opengm::python::GmAdder,opengm::Minimizer>();
       }
       // maximizer
       {
@@ -270,7 +293,7 @@ BOOST_PYTHON_MODULE_INIT(_inference) {
          export_bp<opengm::python::GmMultiplier,opengm::Maximizer>();
          export_trbp<opengm::python::GmMultiplier,opengm::Maximizer>();
          export_astar<opengm::python::GmMultiplier,opengm::Maximizer>();
-         export_gibbs<opengm::python::GmMultiplier,opengm::Maximizer>();
+         //export_gibbs<opengm::python::GmMultiplier,opengm::Maximizer>();
          export_lazyflipper<opengm::python::GmMultiplier,opengm::Maximizer>();
          //export_loc<opengm::python::GmMultiplier,opengm::Maximizer>();
          export_bruteforce<opengm::python::GmMultiplier,opengm::Maximizer>();

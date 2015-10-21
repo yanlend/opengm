@@ -28,34 +28,56 @@ for infClass,infName in _inject_interface(_solverDicts):
   inference.__dict__[infName]=infClass
 
 
-class Timer(object):
-    def __init__(self, name=None):
+class Timer:
+    def __init__(self, name=None , verbose = True):
         self.name = name
+        self.verbose = verbose
 
     def __enter__(self):
-        if self.name:
+        if self.name and self.verbose:
             print '[%s]' % self.name
         self.tstart = time.time()
-
+        return self
 
     def __exit__(self, type, value, traceback):
         #if self.name:
         #    print '[%s]' % self.name,
-        print '   Elapsed: %s' % (time.time() - self.tstart)
+        self.elapsed = time.time() - self.tstart
+        if self.verbose:
+            print '   Elapsed: %s' % (time.time() - self.tstart)
 
 
 
+def weightRandomizer(noiseType = 'normalAdd', noiseParam=1.0, seed=42, ignoreSeed = True):
+    p =  inference.adder.minimizer.solver._WeightRandomizerParameter_()
+    ntenum = inference.adder.minimizer.solver._WeightRandomization_NoiseType_
+    if noiseType == 'none' or noiseType =='noNoise':
+        nt =ntenum.none
+    elif noiseType == 'normalAdd':
+        nt =ntenum.normalAdd
+    elif noiseType == 'normalMult':
+        nt =ntenum.normalMult
+    elif noiseType == 'uniformAdd':
+        nt =ntenum.uniformAdd
+    else:
+        raise RuntimeError("unknown noise type")
 
-def saveGm(gm,f,d='gm'):
+    p.noiseType = nt
+    p.noiseParam = float(noiseParam)
+    p.seed = int(seed)
+    p.ignoreSeed = bool(ignoreSeed)
+    return p
+
+def saveGm(gm, f, d='gm'):
   """ save a graphical model to a hdf5 file:
   Args:
     gm : graphical model to save
     f  : filepath 
     g  : dataset (defaut : 'gm')
   """
-  hdf5.saveGraphicalModel(f,d)
+  hdf5.saveGraphicalModel(gm, f, d)
 
-def loadGm(f,d='gm',operator='adder'):
+def loadGm(f, d='gm', operator='adder'):
   """ save a graphical model to a hdf5 file:
   Args:
     f  : filepath 
@@ -243,68 +265,6 @@ class GenericTimingVisitor(object):
 
 
 
-
-
-class __ChainedInf__(object):
-    def __init__(self,gm,accumulator=None,parameter=InfParam()):
-        print "fresh constructor "
-        if accumulator is None:
-            self.accumulator=defaultAccumulator(gm=gm)
-        else:
-            self.accumulator=accumulator
-        kwargs=parameter.kwargs
-        self.gm_=gm
-
-
-        self.solverList    = kwargs.get('solvers', [])
-        self.parameterList = kwargs.get('parameters', [])
-
-        self.arg_ = numpy.zeros(gm.numberOfVariables,dtype=numpy.uint64)
-
-    def timingVisitor(self,visitNth=1,reserve=0,verbose=True,multiline=True):
-        return GenericTimingVisitor(visitNth,reserve,verbose,multiline)
-
-
-    def infer(self,visitor=None):
-        
-        print "CINNNNF"
-        for index,(cls,infParm) in enumerate(zip(self.solverList,self.parameterList)):
-
-            print  "construct solver"
-            solver=cls(gm=self.gm_,accumulator=self.accumulator,parameter=infParm)
-            print "inference"
-            solverTv=solver.timingVisitor(verbose=True,visitNth=100)
-
-            if(index>0):
-                solver.setStartingPoint(self.arg_)
-
-            solver.infer(solverTv)
-            self.arg_=solver.arg()
-
-            if(index==0):
-                print "first solver"
-                visitor.values_     =solverTv.getValues()
-                visitor.runtimes_   =solverTv.getTimes()
-                visitor.bounds_     =solverTv.getBounds()
-                visitor.iterations_ =solverTv.getIterations()
-            else:
-                print "NOOOOOT first solver"
-                assert visitor.runtimes_ is not None
-                visitor.values_     =numpy.append(visitor.values_,     solverTv.getValues())
-                visitor.runtimes_   =numpy.append(visitor.runtimes_,   solverTv.getTimes())
-                visitor.bounds_     =numpy.append(visitor.bounds_,     solverTv.getBounds())
-                visitor.iterations_ =numpy.append(visitor.iterations_, solverTv.getIterations())
-            assert visitor.runtimes_ is not None
-        print "CINNNNF DOOOOONE"
-        print "da rt",visitor.runtimes_[0]
-    def arg(self):
-        return self.arg_
-
-    def value(self):
-        return self.gm_.evaluate(self.arg_)
-
-
-
 class __RandomFusion__(object):
     def __init__(self,gm,accumulator=None,parameter=InfParam()):
 
@@ -405,7 +365,8 @@ class __CheapInitialization__(object):
           print "move local opt"
           self.arg_ = self.gm_.moveLocalOpt('minimizer')
           print "done"
-          visitor.visit(self)
+          if visitor is not None:
+            visitor.visit(self)
 
         # end inference
         if visitor is not None:
@@ -428,7 +389,6 @@ class __CheapInitialization__(object):
 
 
 inference.__dict__['CheapInitialization']=__CheapInitialization__
-inference.__dict__['ChainedInf']=__ChainedInf__
 inference.__dict__['RandomFusion']=__RandomFusion__
 
 

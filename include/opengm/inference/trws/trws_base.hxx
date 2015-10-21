@@ -7,8 +7,7 @@
 #include <functional>
 #include <opengm/functions/view_fix_variables_function.hxx>
 #include <opengm/inference/inference.hxx>
-#include <opengm/inference/visitors/visitor.hxx>
-#include "trws_reparametrization.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 
 namespace opengm {
 namespace trws_base{
@@ -25,10 +24,33 @@ public:
 	typedef typename MonotoneChainsDecomposition<GM>::SubVariable SubVariable;
 	typedef typename MonotoneChainsDecomposition<GM>::SubVariableListType SubVariableListType;
 	typedef typename SubModel::UnaryFactor UnaryFactor;
-	typedef enum {GRIDSTRUCTURE, GENERALSTRUCTURE} StructureType;
+	//typedef enum {GRIDSTRUCTURE, GENERALSTRUCTURE} StructureType;
+	typedef enum {GRIDSTRUCTURE, GENERALSTRUCTURE, EDGESTRUCTURE} StructureType;
+
+	static StructureType getStructureType(const std::string& structName)
+	{
+		   if (structName.compare("GRID")==0) return GRIDSTRUCTURE;
+		   else if (structName.compare("EDGE")==0)  return EDGESTRUCTURE;
+		   else return GENERALSTRUCTURE;
+	}
+
+	static std::string getString(StructureType structure)
+	{
+		switch (structure)
+		{
+		case GENERALSTRUCTURE: return std::string("GENERAL");
+		case GRIDSTRUCTURE   : return std::string("GRID");
+		case EDGESTRUCTURE   : return std::string("EDGE BASED");
+		default: return std::string("UNKNOWN");
+		}
+	}
+
+
 	typedef VariableToFactorMapping<GM> VariableToFactorMap;
 
-	DecompositionStorage(const GM& gm,StructureType structureType=GENERALSTRUCTURE);
+	typedef std::vector<typename GM::ValueType> DDVectorType;
+
+	DecompositionStorage(const GM& gm,StructureType structureType=GENERALSTRUCTURE, const DDVectorType* pddvector=0);
 	~DecompositionStorage();
 
 	const GM& masterModel()const{return _gm;}
@@ -46,8 +68,12 @@ public:
 	void PrintVariableDecompositionConsistency(std::ostream& fout)const;
 #endif
 
+	void getDDVector(DDVectorType* ddvector)const;
+	size_t  getDDVectorSize()const;
+	void addDDvector(const DDVectorType& ddvector);
 private:
-	void _InitSubModels();
+	void _InitSubModels(const DDVectorType* pddvector=0);
+	//void _addDDvector(const DDVectorType& ddvector);
 	const GM& _gm;
 	StructureType  _structureType;
 	std::vector<SubModel*> _subModels;
@@ -55,24 +81,6 @@ private:
 	VariableToFactorMap _var2FactorMap;
 };
 
-template<class VISITOR, class INFERENCE_TYPE>
-class VisitorWrapper
-{
-public:
-	typedef VISITOR VisitorType;
-	typedef INFERENCE_TYPE InferenceType;
-	typedef typename InferenceType::ValueType ValueType;
-
-	VisitorWrapper(VISITOR* pvisitor,INFERENCE_TYPE* pinference)
-	:_pvisitor(pvisitor),
-	 _pinference(pinference){};
-	void begin(ValueType value,ValueType bound){_pvisitor->begin(*_pinference,value,bound);}
-	void end(ValueType value,ValueType bound){_pvisitor->end(*_pinference,value,bound);}
-	void operator() (ValueType value,ValueType bound){(*_pvisitor)(*_pinference,value,bound);}
-private:
-	VISITOR* _pvisitor;
-	INFERENCE_TYPE* _pinference;
-};
 
 template<class ValueType>
 struct TRWSPrototype_Parameters
@@ -197,8 +205,9 @@ public:
 	typedef ACC AccumulationType;
 	typedef SubSolver SubSolverType;
 	typedef FunctionParameters<GM> FactorProperties;
-	typedef opengm::EmptyVisitor< TRWSPrototype<SubSolverType> >  EmptyVisitorParent;
-	typedef VisitorWrapper<EmptyVisitorParent,TRWSPrototype<SubSolver>  > EmptyVisitorType;
+	//typedef visitors::ExplicitEmptyVisitor< TRWSPrototype<SubSolverType> >  EmptyVisitorParent;
+	typedef visitors::EmptyVisitor< TRWSPrototype<SubSolverType> >  EmptyVisitorParent;
+	typedef visitors::VisitorWrapper<EmptyVisitorParent,TRWSPrototype<SubSolver>  > EmptyVisitorType;
 
 	typedef typename SubSolver::const_iterators_pair const_marginals_iterators_pair;
 	typedef typename GM::ValueType ValueType;
@@ -213,8 +222,6 @@ public:
 	typedef SequenceStorage<GM> SubModel;
 	typedef DecompositionStorage<GM> Storage;
 	typedef typename Storage::UnaryFactor UnaryFactor;
-
-	typedef TRWS_Reparametrizer<Storage,ACC> ReparametrizerType;
 
 	TRWSPrototype(Storage& storage,const Parameters& params
 #ifdef TRWS_DEBUG_OUTPUT
@@ -234,6 +241,12 @@ public:
 
 	bool CheckDualityGap(ValueType primalBound,ValueType dualBound);
 	virtual std::pair<ValueType,ValueType> GetMarginals(IndexType variable, OutputIteratorType begin){return std::make_pair((ValueType)0,(ValueType)0);};//!>returns "averaged" over subsolvers marginals
+
+	/*
+	 * returns marginals of a subsolver for a given variable
+	 * Index of the variable is local - for the given subsolver
+	 */
+
 	void GetMarginalsMove();
 	void BackwardMove();//optimization move, also estimates a primal bound
 
@@ -241,21 +254,27 @@ public:
 	virtual InferenceTermination infer(){EmptyVisitorParent vis; EmptyVisitorType visitor(&vis,this);  return infer(visitor);};
 	template<class VISITOR> InferenceTermination infer(VISITOR&);
 	void ForwardMove();
+	void EstimateIntegerLabelingAndBound(){_EstimateIntegerLabeling();
+		_EvaluateIntegerBounds();
+	}
+
 	ValueType lastDualUpdate()const{return _lastDualUpdate;}
 
-	template<class VISITOR> InferenceTermination infer_visitor_updates(VISITOR&);
-	InferenceTermination core_infer(){EmptyVisitorParent vis; EmptyVisitorType visitor(&vis,this);  return _core_infer(visitor);};
+	template<class VISITOR> InferenceTermination infer_visitor_updates(VISITOR& visitor, size_t* pinterCounter=0);
+	InferenceTermination core_infer(size_t* piterCounter=0){EmptyVisitorParent vis; EmptyVisitorType visitor(&vis,this);  return _core_infer(visitor,piterCounter);};
 	const FactorProperties& getFactorProperties()const{return _factorProperties;}
 
-	ReparametrizerType * getReparametrizer(const typename ReparametrizerType::Parameter& params=typename ReparametrizerType::Parameter())const
-	{return new ReparametrizerType(_storage,_factorProperties,params);}
+	/*
+	 * typedef TRWS_Reparametrizer<Storage,ACC> ReparametrizerType;
+	 */
+//	template<class ReparametrizerType>
+//	ReparametrizerType * getReparametrizer(const typename ReparametrizerType::Parameter& params=typename ReparametrizerType::Parameter())const
+//	{return new ReparametrizerType(_storage,_factorProperties,params);}
 
-//	int * getReparametrizer(const typename ReparametrizerType::Parameter& params)const
-//	{return new int(10);}
 
 protected:
 	void _EstimateIntegerLabeling();
-	template <class VISITOR> InferenceTermination _core_infer(VISITOR&);
+	template <class VISITOR> InferenceTermination _core_infer(VISITOR& visitor, size_t* piterCounter=0);
 	virtual ValueType _GetPrimalBound(){_EvaluateIntegerBounds(); return GetBestIntegerBound();}
 	virtual void _postprocessMarginals(typename std::vector<ValueType>::iterator begin,typename std::vector<ValueType>::iterator end)=0;
 	virtual void _normalizeMarginals(typename std::vector<ValueType>::iterator begin,typename std::vector<ValueType>::iterator end,SubSolver* subSolver)=0;
@@ -274,7 +293,8 @@ protected:
 	ValueType _GetObjectiveValue();
 	IndexType _order(IndexType i);
 	IndexType _core_order(IndexType i,IndexType totalSize);
-	bool _CheckConvergence(ValueType relativeThreshold);
+	virtual bool _CheckConvergence(ValueType relativeThreshold);
+
 	virtual bool _CheckStoppingCondition(InferenceTermination* pterminationCode);
 	virtual void _EstimateTRWSBound(){};
 
@@ -359,6 +379,7 @@ public:
 				,fout
 #endif
 		),
+		_bDualConverged(false),
 		_smoothingValue(params.smoothingValue_)
 		{};
 	~SumProdTRWS(){};
@@ -367,22 +388,47 @@ public:
 	void PrintTestData(std::ostream& fout)const;
 #endif
 
-	void SetSmoothing(ValueType smoothingValue){_smoothingValue=smoothingValue;_InitMove();}
+	void SetSmoothing(ValueType smoothingValue){_bDualConverged=false; _smoothingValue=smoothingValue;_InitMove();}
 	ValueType GetSmoothing()const{return _smoothingValue;}
 	/*
 	 * returns "averaged" over subsolvers marginals
 	 * and pair of (ell_2 norm,ell_infty norm)
 	 */
+	bool ConvergenceFlag()const{return _bDualConverged;}
 	std::pair<ValueType,ValueType> GetMarginals(IndexType variable, OutputIteratorType begin);
 	ValueType GetMarginalsAndDerivativeMove();//!> besides computation of marginals returns derivative w.r.t. _smoothingValue
 	ValueType getDerivative(size_t i)const{return parent::_subSolvers[i]->getDerivative();}
+
+//	template<class ITERATOR>
+//	void GetMarginalsForSubModel(IndexType modelId,IndexType localVarId,ITERATOR begin)
+//	{   OPENGM_ASSERT(modelId < parent::_subSolvers.size());
+//	    const_marginals_iterators_pair it=parent::_subSolvers[modelId]->GetMarginals(localVarId);
+//        ITERATOR end=begin+(it.second-it.first);
+//	    std::copy(it.first,it.second,begin);
+//	    _normalizeMarginals(begin,end,parent::_subSolvers[modelId]);
+//	    ValueType mul; ACC::op(1.0,-1.0,mul);
+//	    transform_inplace(begin,end,mulAndExp<ValueType>(mul));
+//	}
+
+		template<class ITERATOR>
+		void GetMarginalsForSubModel(IndexType modelId,IndexType localVarId,ITERATOR begin)
+		{   OPENGM_ASSERT(modelId < parent::_subSolvers.size());
+		    const_marginals_iterators_pair it=parent::_subSolvers[modelId]->GetMarginals(localVarId);
+	        ITERATOR end=begin+(it.second-it.first);
+		    std::copy(it.first,it.second,begin);
+		    ValueType mul; ACC::op(1.0,-1.0,mul);
+		    _MaxNormalize_inplace(begin,end,(ValueType)0.0,ACC::template ibop<ValueType>);
+ 		    transform_inplace(begin,end,mulAndExp<ValueType>(mul));
+ 		   _MulNormalize(begin,end,(ValueType)0);
+		}
 
 protected:
 	void _SumUpForwardMarginals(std::vector<ValueType>* pout,const_marginals_iterators_pair itpair);
 	void _postprocessMarginals(typename std::vector<ValueType>::iterator begin,typename std::vector<ValueType>::iterator end);
 	void _normalizeMarginals(typename std::vector<ValueType>::iterator begin,typename std::vector<ValueType>::iterator end,SubSolver* subSolver);
 	void _InitMove();
-	//bool _CheckConvergence();
+	bool _CheckConvergence(ValueType relativeThreshold){return  _bDualConverged=parent::_CheckConvergence(relativeThreshold);};
+	bool _bDualConverged;
 	//bool _CheckStoppingCondition(InferenceTermination* pterminationCode);
 	ValueType _smoothingValue;
 };
@@ -394,8 +440,6 @@ struct MaxSumTRWS_Parameters : public TRWSPrototype_Parameters<ValueType>
 {
 	typedef TRWSPrototype_Parameters<ValueType> parent;
 
-	size_t treeAgreeMaxStableIter_;
-
 	MaxSumTRWS_Parameters(size_t maxIternum,
 			   ValueType precision=1.0,
 			   bool absolutePrecision=true,
@@ -406,8 +450,16 @@ struct MaxSumTRWS_Parameters : public TRWSPrototype_Parameters<ValueType>
 		parent(maxIternum,precision,absolutePrecision,minRelativeDualImprovement,fastComputations,canonicalNormalization),
 		treeAgreeMaxStableIter_(treeAgreeMaxStableIter)
 	{
-		if (treeAgreeMaxStableIter_==0) treeAgreeMaxStableIter_=maxIternum;
+//		if (treeAgreeMaxStableIter_==0)
+//			treeAgreeMaxStableIter_=maxIternum;
+
 	};
+
+	size_t treeAgreeMaxStableIter()const{return (treeAgreeMaxStableIter_==0 ? parent::maxNumberOfIterations_ : treeAgreeMaxStableIter_);}
+	void setTreeAgreeMaxStableIter(size_t val){treeAgreeMaxStableIter_=val;}
+
+  private:
+	size_t treeAgreeMaxStableIter_;
 };
 
 template<class GM,class ACC>
@@ -427,7 +479,7 @@ public:
 	typedef ACC AccumulationType;
 	typedef GM GraphicalModelType;
 	typedef typename parent::OutputContainerType OutputContainerType;
-	  typedef typename parent::ReparametrizerType ReparametrizerType;
+	//  typedef typename parent::ReparametrizerType ReparametrizerType;
 
 	typedef SequenceStorage<GM> SubModel;
 	typedef DecompositionStorage<GM> Storage;
@@ -530,22 +582,54 @@ void TRWSPrototype<SubSolver>::_InitSubSolvers()
 template <class SubSolver>
 bool TRWSPrototype<SubSolver>::CheckDualityGap(ValueType primalBound,ValueType dualBound)
 {
-	//TODO: check that primal bound > dualBound if (bop(primalBound,dualBound)
+	OPENGM_ASSERT((ACC::bop(-1,1) ? 1 : -1 )*(primalBound-dualBound) >  -dualBound*std::numeric_limits<ValueType>::epsilon());
+
+//	_fout << "(ACC::bop(-1,1) ? 1 : -1 )*(primalBound-dualBound)=" << (ACC::bop(-1,1) ? 1 : -1 )*(primalBound-dualBound)
+//			<< ", -dualBound*std::numeric_limits<ValueType>::epsilon()=" << -dualBound*std::numeric_limits<ValueType>::epsilon()<<std::endl;
+
+	ValueType endPrecision=std::max((ValueType)fabs(dualBound)*std::numeric_limits<ValueType>::epsilon(),_parameters.precision_);
+
+//	_fout << "endPrecision="<<endPrecision<<", std::numeric_limits<ValueType>::epsilon()="
+//			<<std::numeric_limits<ValueType>::epsilon() <<", _parameters.precision_="<<_parameters.precision_<<std::endl;
 
 	if (_parameters.absolutePrecision_)
 	{
-		if (fabs(primalBound-dualBound) <= _parameters.precision_)
+		if (fabs(primalBound-dualBound) <= endPrecision)
 		{
 			return true;
 		}
 	}
 	else
 	{
-		if (fabs((primalBound-dualBound)/dualBound)<= _parameters.precision_ )
+		if (fabs((primalBound-dualBound))<= fabs(dualBound)*endPrecision )
 			return true;
 	}
 	return false;
 }
+
+//template <class SubSolver>
+//bool TRWSPrototype<SubSolver>::CheckDualityGap(ValueType primalBound,ValueType dualBound)
+//{
+//	//TODO: check that primal bound > dualBound if (bop(primalBound,dualBound)
+//
+//	OPENGM_ASSERT((ACC::bop(-1,1) ? 1 : -1 )*(primalBound-dualBound) >  -dualBound*std::numeric_limits<ValueType>::epsilon());
+//
+//
+//	if (_parameters.absolutePrecision_)
+//	{
+//		if (fabs(primalBound-dualBound) <= _parameters.precision_)
+//		{
+//			return true;
+//		}
+//	}
+//	else
+//	{
+//		if (fabs((primalBound-dualBound)/dualBound)<= _parameters.precision_)
+//			return true;
+//	}
+//	return false;
+//}
+
 
 template <class SubSolver>
 bool TRWSPrototype<SubSolver>::_CheckConvergence(ValueType relativeThreshold)
@@ -589,7 +673,7 @@ bool TRWSPrototype<SubSolver>::_CheckStoppingCondition(InferenceTermination* pte
 
 template <class SubSolver>
 template <class VISITOR>
-typename TRWSPrototype<SubSolver>::InferenceTermination TRWSPrototype<SubSolver>::_core_infer(VISITOR& visitor)
+typename TRWSPrototype<SubSolver>::InferenceTermination TRWSPrototype<SubSolver>::_core_infer(VISITOR& visitor,size_t* piterCounter)
 {
 	for (size_t iterationCounter=0;iterationCounter<_parameters.maxNumberOfIterations_;++iterationCounter)
 	{
@@ -603,10 +687,21 @@ typename TRWSPrototype<SubSolver>::InferenceTermination TRWSPrototype<SubSolver>
 		_fout << "dualBound=" << _dualBound <<", primalBound="<<_GetPrimalBound() <<std::endl;
 #endif
 		_EstimateTRWSBound();
-		visitor(value(),bound());
+		const size_t visitorReturn = visitor();
+
+		if (piterCounter!=0) *piterCounter=iterationCounter+1;
+
 		InferenceTermination returncode;
 		if (_CheckStoppingCondition(&returncode))
 			 return returncode;
+
+      if( visitorReturn != visitors::VisitorReturnFlag::ContinueInf ){
+         if( visitorReturn == visitors::VisitorReturnFlag::StopInfBoundReached){
+            return opengm::CONVERGENCE;
+         } else {
+            return opengm::TIMEOUT;
+         }
+      }
 	}
 	return opengm::TIMEOUT;
 }
@@ -675,25 +770,35 @@ template <class SubSolver>
 template <class VISITOR>
 typename TRWSPrototype<SubSolver>::InferenceTermination TRWSPrototype<SubSolver>::infer(VISITOR& visitor)
 {
-	visitor.begin(value(),bound());
+	visitor.begin();
 	InferenceTermination returncode=infer_visitor_updates(visitor);
-	visitor.end(value(), bound());
+	visitor.end();
 	return returncode;
 }
 
 template <class SubSolver>
 template <class VISITOR>
-typename TRWSPrototype<SubSolver>::InferenceTermination TRWSPrototype<SubSolver>::infer_visitor_updates(VISITOR& visitor)
+typename TRWSPrototype<SubSolver>::InferenceTermination TRWSPrototype<SubSolver>::infer_visitor_updates(VISITOR& visitor, size_t* piterCounter)
 {
 	_InitMove();
 	_ForwardMove();
-	visitor(value(),bound());
 	_oldDualBound=_dualBound;
 #ifdef TRWS_DEBUG_OUTPUT
 	_fout << "ForwardMove: dualBound=" << _dualBound <<std::endl;
 #endif
+
+   const size_t visitorReturn = visitor();
+   if( visitorReturn != visitors::VisitorReturnFlag::ContinueInf ){
+      if( visitorReturn == visitors::VisitorReturnFlag::StopInfBoundReached){
+         return opengm::CONVERGENCE;
+      } else {
+         return opengm::TIMEOUT;
+      }
+   }
+
 	InferenceTermination returncode;
-	returncode=_core_infer(visitor);
+	returncode=_core_infer(visitor,piterCounter);
+	if (piterCounter!=0) ++(*piterCounter);
 	return returncode;
 }
 
@@ -784,15 +889,16 @@ void TRWSPrototype<SubSolver>::_EstimateIntegerLabeling()
 		 typename PreviousFactorTable<GM>::const_iterator end=_ftable.end(varId,_moveDirection);
 		for (;begin!=end;++begin)
 		{
+		 LabelType fixedLabel=_integerLabeling[begin->varId];
 		 if ((_factorProperties.getFunctionType(begin->factorId)==FunctionParameters<GM>::POTTS) && _parameters.fastComputations_)
 		 {
-			 _sumMarginal[_integerLabeling[begin->varId]]-=_factorProperties.getFunctionParameters(begin->factorId)[0];//instead of adding everywhere the same we just subtract the difference
+			 if (_sumMarginal.size() > fixedLabel)
+			  _sumMarginal[_integerLabeling[begin->varId]]-=_factorProperties.getFunctionParameters(begin->factorId)[0];//instead of adding everywhere the same we just subtract the difference
 		 }else
 		 {
 		 const typename GM::FactorType& pwfactor=_storage.masterModel()[begin->factorId];
 		 IndexType localVarIndx = begin->localId;
-		 LabelType fixedLabel=_integerLabeling[begin->varId];
-
+		 //LabelType fixedLabel=_integerLabeling[begin->varId];
 			opengm::ViewFixVariablesFunction<GM> pencil(pwfactor,
 					std::vector<opengm::PositionAndLabel<IndexType,LabelType> >(1,
 							opengm::PositionAndLabel<IndexType,LabelType>(localVarIndx,
@@ -810,25 +916,23 @@ template <class SubSolver>
 void TRWSPrototype<SubSolver>::_EvaluateIntegerBounds()
 {
 	_integerBound=_storage.masterModel().evaluate(_integerLabeling.begin());
-
 	if (ACC::bop(_integerBound,_bestIntegerBound))
 	{
 		_bestIntegerLabeling=_integerLabeling;
 		_bestIntegerBound=_integerBound;
 	}
-
 }
 
 //================================= DecompositionStorage IMPLEMENTATION =================================================
 template<class GM>
-DecompositionStorage<GM>::DecompositionStorage(const GM& gm,StructureType structureType):
+DecompositionStorage<GM>::DecompositionStorage(const GM& gm,StructureType structureType, const DDVectorType* pddvector):
 _gm(gm),
 _structureType(structureType),
 _subModels(),
 _variableDecomposition(),
 _var2FactorMap(gm)
 {
-	_InitSubModels();
+	_InitSubModels(pddvector);
 }
 
 template<class GM>
@@ -838,14 +942,36 @@ DecompositionStorage<GM>::~DecompositionStorage()
 }
 
 template<class GM>
-void DecompositionStorage<GM>::_InitSubModels()
+void DecompositionStorage<GM>::_InitSubModels(const DDVectorType* pddvector)
 {
 	std::auto_ptr<Decomposition<GM> > pdecomposition;
 
-	if (_structureType==GRIDSTRUCTURE)
+	switch (_structureType)
+	{
+	case GRIDSTRUCTURE:
+	{
 		pdecomposition=std::auto_ptr<Decomposition<GM> >(new GridDecomposition<GM>(_gm));
-	else
+		break;
+	}
+	case EDGESTRUCTURE:
+	{
+		pdecomposition=std::auto_ptr<Decomposition<GM> >(new EdgeDecomposition<GM>(_gm));
+		break;
+	}
+	case GENERALSTRUCTURE:
+	{
 		pdecomposition=std::auto_ptr<Decomposition<GM> >(new MonotoneChainsDecomposition<GM>(_gm));
+		break;
+	}
+	default:
+		throw std::runtime_error("DecompositionStorage::_InitSubModels: Unknown decomposition type!");
+	}
+//	if (_structureType==GRIDSTRUCTURE)
+//		pdecomposition=std::auto_ptr<Decomposition<GM> >(new GridDecomposition<GM>(_gm));
+//	else (_structureType==EDGESTRUCTURE)
+//		pdecomposition=std::auto_ptr<Decomposition<GM> >(new EdgeDecomposition<GM>(_gm));
+//	else
+//		pdecomposition=std::auto_ptr<Decomposition<GM> >(new MonotoneChainsDecomposition<GM>(_gm));
 
 	try{
 		pdecomposition->ComputeVariableDecomposition(&_variableDecomposition);
@@ -861,11 +987,81 @@ void DecompositionStorage<GM>::_InitSubModels()
 
 			_subModels[modelId]= new SubModel(_gm,_var2FactorMap,varList,pdecomposition->getFactorList(modelId),numOfSubModelsPerVar);
 		};
+
+		if (pddvector!=0)
+			addDDvector(*pddvector);
+
 	}catch(std::runtime_error& err)
 	{
 		throw err;
 	}
 };
+
+
+template<class GM>
+void DecompositionStorage<GM>::addDDvector(const DDVectorType& delta)
+{
+	if (delta.size()!=getDDVectorSize())
+		throw std::runtime_error("DecompositionStorage<GM>::addDDvector(): Error: size of the input vector does not match the size of the graphical model.");
+
+	typename DDVectorType::const_iterator deltaIt=delta.begin();
+	for (IndexType varId=0;varId<masterModel().numberOfVariables();++varId)// all variables
+	{ const SubVariableListType& varList=getSubVariableList(varId);
+
+	if (varList.size()==1) continue;
+	typename SubVariableListType::const_iterator modelIt=varList.begin();
+	IndexType firstModelId=modelIt->subModelId_;
+	IndexType firstModelVariableId=modelIt->subVariableId_;
+	++modelIt;
+	for(;modelIt!=varList.end();++modelIt) //all related models
+	{
+		std::transform(subModel(modelIt->subModelId_).ufBegin(modelIt->subVariableId_),
+				subModel(modelIt->subModelId_).ufEnd(modelIt->subVariableId_),
+				deltaIt,subModel(modelIt->subModelId_).ufBegin(modelIt->subVariableId_),
+				std::plus<ValueType>());
+
+		std::transform(subModel(firstModelId).ufBegin(firstModelVariableId),
+				subModel(firstModelId).ufEnd(firstModelVariableId),
+				deltaIt,subModel(firstModelId).ufBegin(firstModelVariableId),
+				std::minus<ValueType>());
+		deltaIt+=masterModel().numberOfLabels(varId);
+	}
+	}
+}
+
+template<class GM>
+void DecompositionStorage<GM>::getDDVector(DDVectorType* pddvector)const
+{
+	pddvector->resize(getDDVectorSize());
+	typename DDVectorType::iterator gradientIt=pddvector->begin();
+	UnaryFactor uf;
+	for (IndexType varId=0;varId<_gm.numberOfVariables();++varId)// all variables
+	{
+		const SubVariableListType& varList=getSubVariableList(varId);
+
+		if (varList.size()==1) continue;
+		typename SubVariableListType::const_iterator modelIt=varList.begin();
+		uf.resize(_gm.numberOfLabels(varId));
+		_gm[_var2FactorMap(varId)].copyValues(uf.begin());
+		transform_inplace(uf.begin(),uf.end(),std::bind2nd(std::multiplies<ValueType>(),1.0/varList.size()));
+		++modelIt;
+		for(;modelIt!=varList.end();++modelIt) //all related models
+		{
+			const std::vector<ValueType>& buffer=subModel(modelIt->subModelId_).unaryFactors(modelIt->subVariableId_);
+			gradientIt=std::transform(buffer.begin(),buffer.end(),uf.begin(),gradientIt,std::minus<ValueType>());
+		}
+	}
+}
+
+
+template<class GM>
+size_t  DecompositionStorage<GM>::getDDVectorSize()const
+{
+	size_t varsize=0;
+	for (IndexType varId=0;varId<_gm.numberOfVariables();++varId)// all variables
+		varsize+=(getSubVariableList(varId).size()-1)*_gm.numberOfLabels(varId);
+	return varsize;
+}
 
 #ifdef TRWS_DEBUG_OUTPUT
 template<class GM>
@@ -964,7 +1160,7 @@ void MaxSumTRWS<GM,ACC>::getTreeAgreement(std::vector<bool>& out,std::vector<Lab
 	for (size_t varId=0;varId<parent::_storage.masterModel().numberOfVariables();++varId)
 	{
 		const typename Storage::SubVariableListType& varList=parent::_storage.getSubVariableList(varId);
-		size_t label;
+		size_t label=0;
 		for(typename Storage::SubVariableListType::const_iterator modelIt=varList.begin()
 														;modelIt!=varList.end();++modelIt)
 		{
@@ -986,25 +1182,6 @@ void MaxSumTRWS<GM,ACC>::getTreeAgreement(std::vector<bool>& out,std::vector<Lab
 	}
 }
 
-//template<class GM,class ACC>
-//bool MaxSumTRWS<GM,ACC>::CheckTreeAgreement(InferenceTermination* pterminationCode)
-//{
-//	  getTreeAgreement(_treeAgree);
-//	  size_t agree_count=count(_treeAgree.begin(),_treeAgree.end(),true);
-//#ifdef TRWS_DEBUG_OUTPUT
-//	  parent::_fout << "tree-agreement: " << agree_count <<" out of "<<_treeAgree.size() <<", ="<<100*(double)agree_count/_treeAgree.size()<<"%"<<std::endl;
-//#endif
-//
-//	  if (_treeAgree.size()==agree_count)
-//	  {
-//#ifdef TRWS_DEBUG_OUTPUT
-//		  parent::_fout <<"Problem solved."<<std::endl;
-//#endif
-//		  *pterminationCode=opengm::CONVERGENCE;
-//		  return true;
-//	  }else
-//		  return false;
-//}
 
 template<class GM,class ACC>
 bool MaxSumTRWS<GM,ACC>::CheckTreeAgreement(InferenceTermination* pterminationCode)
@@ -1034,20 +1211,12 @@ bool MaxSumTRWS<GM,ACC>::CheckTreeAgreement(InferenceTermination* pterminationCo
 		  return false;
 }
 
-//template<class GM,class ACC>
-//bool MaxSumTRWS<GM,ACC>::_CheckStoppingCondition(InferenceTermination* pterminationCode)
-//{
-//  if (CheckTreeAgreement(pterminationCode)) return true;
-//
-//  return parent::_CheckStoppingCondition(pterminationCode);
-//}
-
 template<class GM,class ACC>
 bool MaxSumTRWS<GM,ACC>::_CheckStoppingCondition(InferenceTermination* pterminationCode)
 {
   if (CheckTreeAgreement(pterminationCode)) return true;
 
-  if (_treeAgree_iterationCounter > _parameters.treeAgreeMaxStableIter_)
+  if (_treeAgree_iterationCounter > _parameters.treeAgreeMaxStableIter())
   {
 #ifdef TRWS_DEBUG_OUTPUT
 		  parent::_fout <<"There were no improvement of tree agreement during last "<<_treeAgree_iterationCounter <<" steps. Aborting."<<std::endl;
@@ -1109,15 +1278,10 @@ SumProdTRWS<GM,ACC>::GetMarginals(IndexType varId, OutputIteratorType begin)
 
   for(typename Storage::SubVariableListType::const_iterator modelIt=varList.begin();modelIt!=varList.end();++modelIt)
   {
-	  typename SubSolver::const_iterators_pair marginalsit=parent::_subSolvers[modelIt->subModelId_]->GetMarginals(modelIt->subVariableId_);
-		std::vector<ValueType>& normMarginals=parent::_marginals[modelIt->subModelId_];
-		normMarginals.resize(parent::_storage.numberOfLabels(varId));
-	  //normalize
-	  std::copy(marginalsit.first,marginalsit.second,normMarginals.begin());
-	  _normalizeMarginals(normMarginals.begin(),normMarginals.end(),parent::_subSolvers[modelIt->subModelId_]);
-	  ValueType mul; ACC::op(1.0,-1.0,mul);
-	  transform_inplace(normMarginals.begin(),normMarginals.end(),mulAndExp<ValueType>(mul));
-	  std::transform(normMarginals.begin(),normMarginals.end(),begin,begin,std::plus<ValueType>());
+	 std::vector<ValueType>& normMarginals=parent::_marginals[modelIt->subModelId_];
+	 normMarginals.resize(parent::_storage.numberOfLabels(varId));
+	 GetMarginalsForSubModel(modelIt->subModelId_,modelIt->subVariableId_,normMarginals.begin());
+	 std::transform(normMarginals.begin(),normMarginals.end(),begin,begin,std::plus<ValueType>());
   }
   transform_inplace(begin,begin+parent::_storage.numberOfLabels(varId),std::bind1st(std::multiplies<ValueType>(),1.0/varList.size()));
 
@@ -1137,6 +1301,7 @@ SumProdTRWS<GM,ACC>::GetMarginals(IndexType varId, OutputIteratorType begin)
 
   return std::make_pair(sqrt(ell2Norm),ellInftyNorm);
 }
+
 
 template<class GM,class ACC>
 typename SumProdTRWS<GM,ACC>::ValueType

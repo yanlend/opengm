@@ -9,7 +9,7 @@
 #include <iostream>
 
 #include "opengm/opengm.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 #include "opengm/inference/inference.hxx"
 #include "opengm/utilities/metaprogramming.hxx"
 #include "opengm/datastructures/partition.hxx"
@@ -79,22 +79,32 @@ namespace opengm {
     typedef GM GraphicalModelType;
     typedef INF InfType;
     OPENGM_GM_TYPE_TYPEDEFS;
-    typedef VerboseVisitor<ReducedInference<GM,ACC,INF> > VerboseVisitorType;
-    typedef EmptyVisitor<ReducedInference<GM,ACC,INF> > EmptyVisitorType; 
-    typedef TimingVisitor<ReducedInference<GM,ACC,INF> > TimingVisitorType; 
+    typedef visitors::VerboseVisitor<ReducedInference<GM, ACC, INF> > VerboseVisitorType;
+    typedef visitors::EmptyVisitor<ReducedInference<GM, ACC, INF> >   EmptyVisitorType;
+    typedef visitors::TimingVisitor<ReducedInference<GM, ACC, INF> >  TimingVisitorType;
 
 
-    class Parameter{
+    class Parameter
+    {
     public:
-      typename INF::Parameter subParameter_;
-      bool Persistency_;
-      bool Tentacle_;
-      bool ConnectedComponents_;
-      Parameter(){
-        Persistency_ = false;
-        Tentacle_ = false;
-        ConnectedComponents_ = false;
-      };
+        typename INF::Parameter subParameter_;
+        bool Persistency_;
+        bool Tentacle_;
+        bool ConnectedComponents_;
+        Parameter(
+            const bool Persistency=false,
+            const bool Tentacle=false,
+            const bool ConnectedComponents=false,
+            typename INF::Parameter subParameter = typename INF::Parameter()
+        )
+        :
+            Persistency_(Persistency),
+            Tentacle_(Tentacle),
+            ConnectedComponents_(ConnectedComponents),
+            subParameter_(subParameter)
+        {
+
+        };
     };
 
     ReducedInference(const GmType&, const Parameter & = Parameter() );
@@ -282,7 +292,7 @@ namespace opengm {
     kolmogorov::qpbo::QPBO<ValueType>  qr(gm_.numberOfVariables(), 0); 
     hoe.ToQuadratic(qr);
     qr.Solve();
-    IndexType numberOfChangedVariables = 0;
+  
     for (IndexType i = 0; i < gm_.numberOfVariables(); ++i) {
       int label = qr.GetLabel(i);
       if(label == 0 ){
@@ -309,7 +319,7 @@ namespace opengm {
     mqpboPara.useKovtunsMethod_  = false;
     mqpboPara.strongPersistency_ = true;
     mqpboPara.rounds_            = 10;
-    mqpboPara.permutationType_   =  MQPBOType::RANDOM;  
+    mqpboPara.permutationType_   = MQPBOType::RANDOM; 
     MQPBOType mqpbo(gm_,mqpboPara);
     mqpbo.infer();
     arg.resize(gm_.numberOfVariables(),0);
@@ -390,7 +400,7 @@ namespace opengm {
        std::vector<LabelType> arg(0);
        gmm.modifiedState2OriginalState(arg, state_);
        bound_ = value();
-       visitor(*this);
+       //visitor(*this);
        visitor.end(*this);
        return NORMAL;
     }
@@ -403,7 +413,10 @@ namespace opengm {
        gmm.lock();
     } 
 
-    visitor(*this);
+    if( visitor(*this) != visitors::VisitorReturnFlag::ContinueInf ) {
+       visitor.end(*this);
+       return NORMAL;
+    }
 
 
     //ValueType sv, v;
@@ -419,22 +432,28 @@ namespace opengm {
          args[i].resize(gmm.getModifiedSubModel(i).numberOfVariables());
       } 
       for(size_t i=0; i<gmm.numberOfSubmodels(); ++i){
-	typename ReducedInferenceHelper<GM>::InfGmType agm = gmm.getModifiedSubModel(i);
-	subinf(agm, param_.Tentacle_, args[i],v,b);
-        //OperatorType::op(v,sv);
-        OperatorType::op(b,sb);
-        //gmm.modifiedSubStates2OriginalState(args, state_);
-	//visitor(*this,value(),bound(),"numberOfComp",i);
-	visitor(*this);
+         typename ReducedInferenceHelper<GM>::InfGmType agm = gmm.getModifiedSubModel(i);
+         subinf(agm, param_.Tentacle_, args[i],v,b);
+         //OperatorType::op(v,sv);
+         OperatorType::op(b,sb);
+         //gmm.modifiedSubStates2OriginalState(args, state_);
+         //visitor(*this,value(),bound(),"numberOfComp",i);
+         if( visitor(*this) != visitors::VisitorReturnFlag::ContinueInf ) {
+            visitor.end(*this);
+            return NORMAL;
+         }
       }
       bound_= sb;
       gmm.modifiedSubStates2OriginalState(args, state_);
-      visitor(*this);
+      if( visitor(*this) != visitors::VisitorReturnFlag::ContinueInf ) {
+         visitor.end(*this);
+         return NORMAL;
+      }
       //gmm.modifiedSubStates2OriginalState(args, state_);
     
     }
     else{
-      size_t i=0;
+       //size_t i=0;
       std::vector<LabelType> arg;
       gmm.buildModifiedModel();
       typename ReducedInferenceHelper<GM>::InfGmType agm =  gmm.getModifiedModel();
@@ -445,7 +464,7 @@ namespace opengm {
       bound_=b;
     }
     //value_=gm_.evaluate(state_);
-    visitor(*this);
+    visitor.end(*this);
     return NORMAL;
   }
 

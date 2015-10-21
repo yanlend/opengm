@@ -69,7 +69,9 @@ decomposeManual
    }
    for(size_t subModel=0; subModel<subModelFactors.size(); ++subModel) {
       std::vector<size_t> subVariableIds(gm.numberOfVariables(),gm.numberOfVariables());
-      for(size_t factorId=0; factorId<subModelFactors[subModel].size(); ++factorId) {
+      //for(size_t factorId=0; factorId<subModelFactors[subModel].size(); ++factorId) {
+      for(size_t nn=0; nn<subModelFactors[subModel].size(); ++nn) {
+         size_t factorId = subModelFactors[subModel][nn];
          std::vector<size_t> subVariableIndices(gm[factorId].numberOfVariables());
          for(size_t j=0; j<gm[factorId].numberOfVariables(); ++j) {
             const size_t variableIndex = gm[factorId].variableIndex(j);
@@ -234,27 +236,47 @@ decomposeIntoKFans
      
    for(size_t subModelId=0;subModelId<numberOfSubproblems;++subModelId) {
       decomposition.addSubModel();
+      // find variables connected to inner fan.
+      std::vector<bool> includedVars(gm.numberOfVariables(),false);
+      std::vector<size_t> subVars(gm.numberOfVariables());
+      for(typename std::set<size_t>::iterator vit=innerFanVariables[subModelId].begin(); vit!=innerFanVariables[subModelId].end();++vit){
+         const size_t var = *vit;
+         includedVars[var] = true;
+         for(typename GM::ConstFactorIterator fit=gm.factorsOfVariableBegin(var); fit!=gm.factorsOfVariableEnd(var); ++fit){
+            for(size_t n=0; n<gm[*fit].numberOfVariables();++n){
+               includedVars[gm[*fit].variableIndex(n)] = true;
+            }
+         }
+      } 
       for(size_t variableId=0; variableId<gm.numberOfVariables();++variableId) {
-         decomposition.addSubVariable(subModelId,variableId);
+         if(includedVars[variableId]){
+            subVars[variableId] = decomposition.addSubVariable(subModelId,variableId);
+         }
       }
 
       // find factors of subproblems
       for(size_t factorId=0; factorId<gm.numberOfFactors(); ++factorId) {
          if(gm[factorId].numberOfVariables()==0) {
-            std::vector<size_t> subVariableIndices(0);
-            decomposition.addSubFactor(subModelId,factorId,subVariableIndices);
+            if(subModelId==0){
+               std::vector<size_t> subVariableIndices(0);
+               decomposition.addSubFactor(subModelId,factorId,subVariableIndices);
+            }
          }
          else if(gm[factorId].numberOfVariables()==1) {
-            std::vector<size_t> subVariableIndices(1,gm[factorId].variableIndex(0));
-            decomposition.addSubFactor(subModelId,factorId,subVariableIndices);
+            if(includedVars[gm[factorId].variableIndex(0)]){
+               std::vector<size_t> subVariableIndices(1, subVars[gm[factorId].variableIndex(0)]);
+               decomposition.addSubFactor(subModelId,factorId,subVariableIndices);
+            }
          }
          else if(gm[factorId].numberOfVariables()==2) {
-            if(  (innerFanVariables[subModelId].count(gm[factorId].variableIndex(0)) > 0 )  ||
-                  (innerFanVariables[subModelId].count(gm[factorId].variableIndex(1)) > 0 )) {
-               std::vector<size_t> subVariableIndices(2);
-               subVariableIndices[0] = gm[factorId].variableIndex(0);  
-               subVariableIndices[1] = gm[factorId].variableIndex(1); 
-               decomposition.addSubFactor(subModelId,factorId,subVariableIndices);
+            if(includedVars[gm[factorId].variableIndex(0)] && includedVars[gm[factorId].variableIndex(1)]){
+               if(  (innerFanVariables[subModelId].count(gm[factorId].variableIndex(0)) > 0 )  ||
+                    (innerFanVariables[subModelId].count(gm[factorId].variableIndex(1)) > 0 )) {
+                  std::vector<size_t> subVariableIndices(2);
+                  subVariableIndices[0] =  subVars[gm[factorId].variableIndex(0)];  
+                  subVariableIndices[1] =  subVars[gm[factorId].variableIndex(1)]; 
+                  decomposition.addSubFactor(subModelId,factorId,subVariableIndices);
+               }
             }
          }
          else{

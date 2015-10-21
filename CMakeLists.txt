@@ -15,8 +15,8 @@ cmake_minimum_required(VERSION 2.6)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules)
 project(opengm2)
 set (OPENGM_VERSION_MAJOR 2)
-set (OPENGM_VERSION_MINOR 1)
-set (OPENGM_VERSION_PATCH 2)
+set (OPENGM_VERSION_MINOR 3)
+set (OPENGM_VERSION_PATCH 1)
 
 #--------------------------------------------------------------
 # global headers
@@ -27,7 +27,7 @@ include_directories(include)
 #--------------------------------------------------------------
 # debug info
 #--------------------------------------------------------------
-add_definitions(-DTRWS_DEBUG_OUTPUT)
+#add_definitions(-DTRWS_DEBUG_OUTPUT)
 
 #--------------------------------------------------------------
 # warning level
@@ -65,6 +65,7 @@ endif()
 # options
 #--------------------------------------------------------------
 OPTION(BUILD_EXAMPLES "Build Examples" ON)
+OPTION(BUILD_TUTORIALS "Build Tutorials" ON)
 OPTION(BUILD_COMMANDLINE "Build Commandline" OFF)
 OPTION(WITH_AD3 "Include AD3" OFF)
 OPTION(WITH_CPLEX "Include CPLEX" OFF)
@@ -81,7 +82,11 @@ OPTION(WITH_MAXFLOW_IBFS "Include wrapper for MAXFLOW-IBFScode" OFF)
 OPTION(WITH_LIBDAI "Include wrapper for LIBDAI code" OFF)
 OPTION(WITH_DAOOPT "Include wrapper for DAOOPT code" OFF)
 OPTION(WITH_MPLP "Include wrapper for MPLP code" OFF)
+OPTION(WITH_SRMP "Include wrapper for SRMP code" OFF)
+OPTION(WITH_PLANARITY "Include wrapper for PLANARITY code" OFF)
+OPTION(WITH_BLOSSOM5 "Include wrapper for BLOSSOM5 code" OFF)
 OPTION(WITH_OPENMP "Include OpenMP" OFF)
+OPTION(WITH_VIGRA "Include VIGRA" OFF)
 OPTION(WITH_CONICBUNDLE "Include ConicBundleLibrary" OFF)
 OPTION(WITH_MATLAB "Activate MatLab-Code" OFF)
 OPTION(BUILD_CONVERTER "Build several converters" OFF)
@@ -115,8 +120,8 @@ if(WITH_AD3)
    #include_directories(${AD3_INCLUDE_DIR})
 
 
-  message(STATUS "build with external inference algorithm TRWS")
-  SET(AD3_PATCHEDSRCDIR "${PROJECT_SOURCE_DIR}/src/external/AD3-patched" CACHE STRING "TRWS patched source code directory")
+  message(STATUS "build with external inference algorithm AD3")
+  SET(AD3_PATCHEDSRCDIR "${PROJECT_SOURCE_DIR}/src/external/AD3-patched" CACHE STRING "AD3 patched source code directory")
   add_definitions(-DWITH_AD3)
   include_directories(${AD3_PATCHEDSRCDIR})
 
@@ -147,6 +152,7 @@ if(WITH_BOOST)
    message(STATUS "build with Boost")
    find_package(Boost 1.47 REQUIRED)
    add_definitions(-DWITH_BOOST)
+   add_definitions(-DWITH_BOOST_GRAPH)
    include_directories(${Boost_INCLUDE_DIR})
 else()
    message(STATUS "build without Boost")
@@ -157,7 +163,20 @@ endif()
 #--------------------------------------------------------------
 if(WITH_HDF5)
    message(STATUS "build with HDF5 support")
-   find_package(HDF5 REQUIRED)
+   if(WIN32)
+     # FindHDF5 is broken on Windows
+     # it wrongly discovers the dlls instead of the lib files
+     # see: www.cmake.org/Bug/bug_relationship_graph.php?bug_id=14111
+     # therefore we set the variable manually
+     find_library( HDF5_IMPORT_LIB NAMES hdf5 hdf5dll )
+     find_library( HDF5_HL_IMPORT_LIB NAMES hdf5_hl hdf5_hldll )
+     find_path(HDF5_INCLUDE_DIR hdf5.h)
+     set( HDF5_LIBRARIES ${HDF5_IMPORT_LIB} ${HDF5_HL_IMPORT_LIB} )
+     message(STATUS "HDF5: autodiscovery is broken on WIN32; using global search paths")
+     message(STATUS "HDF5: found ${HDF5_LIBRARIES}")
+   else()
+     find_package(HDF5 REQUIRED)
+   endif()
    include_directories(${HDF5_INCLUDE_DIR})
    add_definitions(${HDF5_CPPFLAGS})
    add_definitions(-DWITH_HDF5)
@@ -294,6 +313,24 @@ else()
    message(STATUS "build without external inference algorithm MaxFlow")
 endif(WITH_MAXFLOW)
 
+#--------------------------------------------------------------
+# VIGRA
+#--------------------------------------------------------------
+if(WITH_VIGRA)
+  find_package(VIGRA)	
+  IF(VIGRA_FOUND)
+    message(STATUS "build with VIGRA")
+    include_directories(${VIGRA_INCLUDE_DIR}) 
+    add_definitions(-DWITH_VIGRA)
+  else()
+    message(STATUS "VIGRA not found") 
+    add_definitions(-DNOVIGRA)
+  endif()
+else()
+  message(STATUS "build without VIGRA") 
+  add_definitions(-DNOVIGRA)
+endif(WITH_VIGRA)
+
 
 #-------------------------------------------------------------
 # ConicBundle Library
@@ -306,7 +343,7 @@ if(WITH_CONICBUNDLE)
         message(STATUS "build with ConicBundle-Library") 
         find_package(CONICBUNDLE REQUIRED)
         include_directories(${CONICBUNDLE_INCLUDE_DIR})
-        add_definitions(-DWITH_CONICBUNDLE) 
+        add_definitions(-DWITH_CONICBUNDLE)
         add_definitions(-DWITH_BUNDLE)
     ENDIF(NOT EXISTS "${PROJECT_SOURCE_DIR}/src/external/ConicBundle-v0.3.11.src-patched")
 else()
@@ -356,6 +393,16 @@ if(WITH_LIBDAI)
    include_directories(${GMP_INCLUDE_DIR})
    include_directories(${GMPXX_INCLUDE_DIR})
    add_definitions(-DWITH_LIBDAI)
+   
+  # Add defines for libdai/include/dai/util.h
+  if(WIN32)
+     add_definitions(-DWINDOWS)
+  else(CYGWIN)
+     add_definitions(-DCYGWIN)
+  else(APPLE)
+     add_definitions(-DMACOSX)
+  endif()
+
 else()
    message(STATUS "build without external inference algorithms from  LibDai")
 endif(WITH_LIBDAI)
@@ -375,7 +422,7 @@ if(WITH_DAOOPT)
       set(Boost_USE_MULTITHREADED OFF)
       
       # To select the two master modes
-      option(DAOOPT_WORKER "Force worker binary" OFF)
+      option(DAOOPT_WORKER "Force worker binary" ON)
       option(DAOOPT_MASTER_STATIC "Force static master binary" OFF)
       option(DAOOPT_MASTER_DYNAMIC "Force dynamic master binary" OFF)
         
@@ -426,6 +473,44 @@ if(WITH_MPLP)
 else()
    message(STATUS "build without external inference algorithm MPLP")
 endif(WITH_MPLP)
+
+#--------------------------------------------------------------
+# SRMP
+#--------------------------------------------------------------
+if(WITH_SRMP)
+   message(STATUS "build with external inference algorithm SRMP")
+   add_definitions(-DWITH_SRMP)
+   SET(SRMP_BASEDIR "${PROJECT_SOURCE_DIR}/src/external/SRMP/" CACHE STRING "SRMP base directory")
+   include_directories(${SRMP_BASEDIR}/include/)
+else(WITH_SRMP)
+   message(STATUS "build without external inference algorithm MPLP")
+endif(WITH_SRMP)
+
+#--------------------------------------------------------------
+# PLANARITY
+#--------------------------------------------------------------
+if(WITH_PLANARITY)
+   message(STATUS "build with external inference algorithm PLANARITY")
+   add_definitions(-DWITH_PLANARITY)
+   SET(PLANARITY_PATCHEDSRCDIR "${PROJECT_SOURCE_DIR}/src/external/planarity.src-patched/" CACHE STRING "PLANARITY base directory")
+   include_directories("${PLANARITY_PATCHEDSRCDIR}../")
+else(WITH_PLANARITY)
+   message(STATUS "build without external inference algorithm PLANARYTY")
+endif(WITH_PLANARITY)
+
+#--------------------------------------------------------------
+# BLOSSOM5
+#--------------------------------------------------------------
+if(WITH_BLOSSOM5)
+   message(STATUS "build with external inference algorithm BLOSSOM5")
+   add_definitions(-DWITH_BLOSSOM5)
+   add_definitions(-DPERFECT_MATCHING_DOUBLE)
+   SET(BLOSSOM5_PATCHEDSRCDIR "${PROJECT_SOURCE_DIR}/src/external/blossom5.src-patched/" CACHE STRING "BLOSSOM5 base directory")
+   include_directories("${BLOSSOM5_PATCHEDSRCDIR}../")
+else(WITH_BLOSSOM5)
+   message(STATUS "build without external inference algorithm BLOSSOM5")
+endif(WITH_BLOSSOM5)
+
 
 #--------------------------------------------------------------
 # thread lib

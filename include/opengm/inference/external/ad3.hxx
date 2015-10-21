@@ -4,7 +4,8 @@
 
 #include "opengm/graphicalmodel/graphicalmodel.hxx"
 #include "opengm/inference/inference.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
+
 
 
 #include "ad3/FactorGraph.h"
@@ -14,6 +15,9 @@
 namespace opengm {
    namespace external {
 
+      /// \brief AD3\n
+      /// \ingroup inference 
+      /// \ingroup external_inference
 
       template<class GM,class ACC>
       class AD3Inf : public Inference<GM, ACC> {
@@ -22,9 +26,9 @@ namespace opengm {
          typedef GM GraphicalModelType;
          typedef ACC AccumulationType;
          OPENGM_GM_TYPE_TYPEDEFS;
-         typedef VerboseVisitor<AD3Inf<GM,ACC> > VerboseVisitorType;
-         typedef TimingVisitor<AD3Inf<GM,ACC> > TimingVisitorType;
-         typedef EmptyVisitor<AD3Inf<GM,ACC> > EmptyVisitorType;
+         typedef visitors::VerboseVisitor<AD3Inf<GM,ACC> > VerboseVisitorType;
+         typedef visitors::EmptyVisitor<AD3Inf<GM,ACC> >   EmptyVisitorType;
+         typedef visitors::TimingVisitor<AD3Inf<GM,ACC> >  TimingVisitorType;
          
          enum SolverType{
             AD3_LP,
@@ -117,6 +121,14 @@ namespace opengm {
          template<class VI_ITERATOR,class FUNCTION>
          void addFactor(VI_ITERATOR viBegin,VI_ITERATOR viEnd,const FUNCTION & function);
 
+
+         const std::vector<double> & posteriors()const{
+            return posteriors_;
+         }
+
+         const std::vector<double> & higherOrderPosteriors()const{
+            return additional_posteriors_;
+         }  
 
 
       private:
@@ -536,17 +548,18 @@ namespace opengm {
 
 
          // solve
+         double value;
          if ( parameter_.solverType_ == AD3_LP){
             //std::cout<<"ad3  lp\n";
-            factor_graph_.SolveLPMAPWithAD3(&posteriors_, &additional_posteriors_, &bound_);
+            factor_graph_.SolveLPMAPWithAD3(&posteriors_, &additional_posteriors_, &value, &bound_);
          }
          if ( parameter_.solverType_ == AD3_ILP){
             //std::cout<<"ad3 ilp\n";
-            factor_graph_.SolveExactMAPWithAD3(&posteriors_, &additional_posteriors_, &bound_);
+            factor_graph_.SolveExactMAPWithAD3(&posteriors_, &additional_posteriors_, &value, &bound_);
          }
          if (parameter_.solverType_ == PSDD_LP){
             //std::cout<<"ad3 psdd lp\n";
-            factor_graph_.SolveExactMAPWithAD3(&posteriors_, &additional_posteriors_, &bound_);
+            factor_graph_.SolveExactMAPWithAD3(&posteriors_, &additional_posteriors_, &value, &bound_);
          }
 
          // transform bound

@@ -1,4 +1,3 @@
-/// OpenGM. Copyright (c) 2010 by Bjoern Andres and Joerg Hendrik Kappes.
 ///
 /// Author(s) of this file: Joerg Hendrik Kappes
 /// For further details see opengm/README.txt
@@ -11,7 +10,7 @@
 #include "opengm/graphicalmodel/graphicalmodel.hxx"
 #include "opengm/operations/minimizer.hxx"
 #include "opengm/inference/inference.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 #include "opengm/utilities/metaprogramming.hxx"
 
 #include "typeView.h"
@@ -24,7 +23,7 @@
 
 namespace opengm {
    namespace external {
-      /// \brief message passing (BP / TRBP): \n
+      /// \brief message passing (BPS, TRWS): \n
       /// [?] 
       ///
       /// \ingroup inference
@@ -42,9 +41,9 @@ namespace opengm {
          typedef GM                              GraphicalModelType;
          typedef opengm::Minimizer               AccumulationType;
          OPENGM_GM_TYPE_TYPEDEFS;
-         typedef EmptyVisitor<TRWS<GM> > EmptyVisitorType;
-         typedef VerboseVisitor<TRWS<GM> > VerboseVisitorType;
-         typedef TimingVisitor<TRWS<GM> > TimingVisitorType;
+         typedef visitors::VerboseVisitor<TRWS<GM> > VerboseVisitorType;
+         typedef visitors::EmptyVisitor<TRWS<GM> >   EmptyVisitorType;
+         typedef visitors::TimingVisitor<TRWS<GM> >  TimingVisitorType;
          typedef size_t VariableIndex;
          ///Parameter
          struct Parameter {
@@ -62,6 +61,10 @@ namespace opengm {
             EnergyType energyType_;
             /// TRWS termintas if fabs(value - bound) / max(fabs(value), 1) < trwsTolerance_
             double tolerance_;
+            ///  TRWS termintas if fabs(bound(t)-bound(t+1)) < minDualChange_
+            double minDualChange_;
+            /// Calculate MinMarginals
+            bool calculateMinMarginals_;
             /// \brief Constructor
             Parameter() {
                numberOfIterations_ = 1000;
@@ -70,6 +73,8 @@ namespace opengm {
                doBPS_ = false;
                energyType_ = VIEW;
                tolerance_ = 0.0;
+               minDualChange_ = 0.00001; 
+               calculateMinMarginals_ = false;
             };
          };
          // construction
@@ -83,7 +88,8 @@ namespace opengm {
          template<class VISITOR>
          InferenceTermination infer(VISITOR & visitor);
          InferenceTermination infer();
-         InferenceTermination arg(std::vector<LabelType>&, const size_t& = 1) const;
+         InferenceTermination arg(std::vector<LabelType>&, const size_t& = 1) const; 
+         InferenceTermination marginal(const size_t variableIndex, IndependentFactorType& out) const;
          typename GM::ValueType bound() const;  
          typename GM::ValueType value() const;
       private:
@@ -99,6 +105,9 @@ namespace opengm {
          MRFEnergy<TypeTruncatedLinear>::NodeId* nodesTL1_;
          MRFEnergy<TypeTruncatedQuadratic>* mrfTL2_;
          MRFEnergy<TypeTruncatedQuadratic>::NodeId* nodesTL2_;
+         TypeGeneral::REAL* minMarginals_;
+         size_t* minMarginalsOffsets_;  
+       
          
          double runTime_;
          ValueType lowerBound_;
@@ -186,10 +195,19 @@ namespace opengm {
          const Parameter para
          )
          :  gm_(gm), parameter_(para), mrfView_(NULL), nodesView_(NULL), mrfGeneral_(NULL), nodesGeneral_(NULL),
-            mrfTL1_(NULL), nodesTL1_(NULL), mrfTL2_(NULL), nodesTL2_(NULL), numNodes_(gm_.numberOfVariables()),
-            maxNumLabels_(gm_.numberOfLabels(0)) {
+            mrfTL1_(NULL), nodesTL1_(NULL), mrfTL2_(NULL), nodesTL2_(NULL), minMarginals_(NULL), minMarginalsOffsets_(NULL),
+            numNodes_(gm_.numberOfVariables()), maxNumLabels_(gm_.numberOfLabels(0)) {
          // check label number
          checkLabelNumber();
+         if(parameter_.calculateMinMarginals_){
+            size_t count = 0; 
+            minMarginalsOffsets_ = new size_t[gm_.numberOfVariables()];
+            for(size_t i=0; i<gm_.numberOfVariables(); ++i){
+               minMarginalsOffsets_[i] = count;
+               count += gm_.numberOfLabels(i);
+            }
+            minMarginals_ = new TypeGeneral::REAL[count];
+         }
 
          // generate mrf model
          switch(parameter_.energyType_) {
@@ -257,6 +275,10 @@ namespace opengm {
          }
          if(nodesTL2_) {
             delete[] nodesTL2_;
+         }
+         if(minMarginals_) {
+            delete[] minMarginals_;
+            delete[] minMarginalsOffsets_;
          }
       }
 
@@ -370,6 +392,28 @@ namespace opengm {
                   throw(RuntimeError("Unknown energy type."));
                }
             }
+         }
+      }
+
+      /// \brief output a solution for a marginal for a specific variable
+      /// \param variableIndex index of the variable
+      /// \param[out] out the marginal
+      template<class GM>
+      inline InferenceTermination
+      TRWS<GM>::marginal(
+         const size_t variableIndex,
+         IndependentFactorType& out
+         ) const
+      { 
+
+         if(parameter_.calculateMinMarginals_){
+            out.assign(gm_, &variableIndex, &variableIndex+1, 0);
+            for(size_t i=0; i<gm_.numberOfLabels(variableIndex); ++i){
+               out(i) = minMarginals_[i+minMarginalsOffsets_[variableIndex]];
+            }
+            return NORMAL;
+         }else{
+            return UNKNOWN;
          }
       }
 
@@ -680,26 +724,37 @@ namespace opengm {
          options.m_printIter = 2 * parameter_.numberOfIterations_;
          visitor.begin(*this);
 
+
          if(parameter_.doBPS_) {
             typename ENERGYTYPE::REAL v;
             for(size_t i = 0; i < parameter_.numberOfIterations_; ++i) {
-               mrf->Minimize_BP(options, v);
+               mrf->Minimize_BP(options, v, minMarginals_);
                value_ = v;
-               visitor(*this);
+               if( visitor(*this) != visitors::VisitorReturnFlag::ContinueInf ) {
+                  break;
+               }
             }
          } else {
             typename ENERGYTYPE::REAL v;
             typename ENERGYTYPE::REAL b;
+            typename ENERGYTYPE::REAL d;
             for(size_t i = 0; i < parameter_.numberOfIterations_; ++i) {
-               mrf->Minimize_TRW_S(options, b, v);
+               mrf->Minimize_TRW_S(options, b, v, minMarginals_);
+               d = b-lowerBound_;
                lowerBound_ = b;
                value_ = v;
-               visitor(*this);
+               if( visitor(*this) != visitors::VisitorReturnFlag::ContinueInf ) {
+                  break;
+               }
                if(fabs(value_ - lowerBound_) / opengmMax(static_cast<double>(fabs(value_)), 1.0) < parameter_.tolerance_) {
+                  break;
+               }
+               if(d<parameter_.minDualChange_){
                   break;
                }
             }
          }
+         //Copy MinMarginals
 
          visitor.end(*this);
          return NORMAL;

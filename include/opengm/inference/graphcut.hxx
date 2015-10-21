@@ -7,7 +7,7 @@
 #include "opengm/operations/adder.hxx"
 #include "opengm/operations/maximizer.hxx"
 #include "opengm/inference/inference.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 
 namespace opengm {
 
@@ -21,9 +21,9 @@ public:
    typedef GM GraphicalModelType;
    OPENGM_GM_TYPE_TYPEDEFS;
    typedef MINSTCUT MinStCutType;
-   typedef VerboseVisitor<GraphCut<GM,ACC,MINSTCUT> >        VerboseVisitorType;
-   typedef TimingVisitor<GraphCut<GM,ACC,MINSTCUT> >         TimingVisitorType;
-   typedef EmptyVisitor<GraphCut<GM,ACC,MINSTCUT> >          EmptyVisitorType;
+   typedef visitors::VerboseVisitor<GraphCut<GM, ACC, MINSTCUT> > VerboseVisitorType;
+   typedef visitors::EmptyVisitor<GraphCut<GM, ACC, MINSTCUT> >   EmptyVisitorType;
+   typedef visitors::TimingVisitor<GraphCut<GM, ACC, MINSTCUT> >  TimingVisitorType;
    struct Parameter {
       Parameter(const ValueType scale = 1)
          : scale_(scale) 
@@ -48,7 +48,7 @@ private:
    void addEdgeCapacity(const size_t, const size_t, const ValueType);
    size_t tripleId(std::vector<size_t>&);
 
-   const GraphicalModelType& gm_;
+   const GraphicalModelType* gm_;
    ValueType tolerance_;
    MinStCutType* minStCut_;
    Parameter parameter_;
@@ -70,7 +70,7 @@ GraphCut<GM, ACC, MINSTCUT>::name() const {
 template<class GM, class ACC, class MINSTCUT>
 inline const typename GraphCut<GM, ACC, MINSTCUT>::GraphicalModelType&
 GraphCut<GM, ACC, MINSTCUT>::graphicalModel() const {
-   return gm_;
+   return *gm_;
 }
 
 template<class GM, class ACC, class MINSTCUT>
@@ -81,7 +81,7 @@ inline GraphCut<GM, ACC, MINSTCUT>::GraphCut
    const Parameter& para, 
    const ValueType tolerance
 )
-:  gm_(GM()), 
+   :  gm_((GM*) 0), 
    tolerance_(fabs(tolerance))
 {
    OPENGM_ASSERT(typeid(ACC) == typeid(opengm::Minimizer) || typeid(ACC) == typeid(opengm::Maximizer));
@@ -105,7 +105,7 @@ inline GraphCut<GM, ACC, MINSTCUT>::GraphCut
    const Parameter& para, 
    const ValueType tolerance
 ) 
-:  gm_(gm), 
+:  gm_(&gm), 
    tolerance_(fabs(tolerance))
 {
    if(typeid(ACC) != typeid(opengm::Minimizer) && typeid(ACC) != typeid(opengm::Maximizer)) {
@@ -375,7 +375,7 @@ inline InferenceTermination GraphCut<GM, ACC, MINSTCUT>::arg
 ) const {
    if(inferenceDone_==false){
       arg.resize(numVariables_,0);
-      return NORMAL;
+      return UNKNOWN;
    }
    if(n > 1) {
       return UNKNOWN;

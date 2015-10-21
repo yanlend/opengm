@@ -133,6 +133,11 @@ namespace detail_graphical_model {
 
    template<size_t IX, size_t DX>
    struct FunctionWrapperExecutor<IX,DX,false>{
+
+      template <class GM,class FUNCTOR>
+      static void  callFunctor(const GM *,const typename GM::IndexType ,const size_t ,FUNCTOR & functor);
+
+
       template <class GM,class ITERATOR>
       static void  getValues(const GM *,ITERATOR,const typename GM::IndexType ,const size_t );
       template <class GM,class ITERATOR>
@@ -177,10 +182,16 @@ namespace detail_graphical_model {
       static bool isAbsoluteDifference(GM const *,const size_t ,const size_t);
       template<class GM>
       static bool isTruncatedAbsoluteDifference(GM const *,const size_t ,const size_t);
+      template<class GM>
+      static bool isLinearConstraint(GM const *,const size_t ,const size_t);
    };
 
    template<size_t IX, size_t DX>
    struct FunctionWrapperExecutor<IX,DX,true>{
+
+      template <class GM,class FUNCTOR>
+      static void  callFunctor(const GM *,const typename GM::IndexType ,const size_t ,FUNCTOR & functor);
+
       template <class GM,class ITERATOR>
       static typename GM::ValueType  getValue(const GM *,ITERATOR,const typename GM::IndexType ,const size_t );
       template <class GM,class ITERATOR>
@@ -225,11 +236,16 @@ namespace detail_graphical_model {
       static bool isAbsoluteDifference(GM const *,const size_t ,const size_t);
       template<class GM>
       static bool isTruncatedAbsoluteDifference(GM const *,const size_t ,const size_t);
+      template<class GM>
+      static bool isLinearConstraint(GM const *,const size_t ,const size_t);
    };
 
    template<size_t NUMBER_OF_FUNCTIONS>
    struct FunctionWrapper{
-       
+      
+      template <class GM,class FUNCTOR>
+      static void  callFunctor(const GM *,const typename GM::IndexType ,const size_t ,FUNCTOR & functor);
+
       template <class GM,class OUT_ITERATOR>
       static void  getValues(const GM *,OUT_ITERATOR,const typename GM::IndexType ,const size_t );
       template <class GM,class OUT_ITERATOR>
@@ -274,6 +290,8 @@ namespace detail_graphical_model {
       static bool isAbsoluteDifference(GM const *,const size_t ,const size_t);
       template<class GM>
       static bool isTruncatedAbsoluteDifference(GM const *,const size_t ,const size_t);
+      template<class GM>
+      static bool isLinearConstraint(GM const *,const size_t ,const size_t);
    };
 } //namespace detail_graphical_model
 
@@ -286,6 +304,7 @@ namespace detail_graphical_model {
    OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( bool, isTruncatedSquaredDifference)
    OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( bool, isAbsoluteDifference)
    OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( bool, isTruncatedAbsoluteDifference)
+   OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( bool, isLinearConstraint)
    OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( typename GM::ValueType, min)
    OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( typename GM::ValueType, max)
    OPENGM_BASIC_FUNCTION_WRAPPER_CODE_GENERATOR_MACRO( typename GM::ValueType, sum)
@@ -470,6 +489,39 @@ namespace detail_graphical_model {
    }
     
    template<size_t IX,size_t DX>
+   template<class GM,class FUNCTOR>
+   inline void
+   FunctionWrapperExecutor<IX,DX,false>::callFunctor
+   (
+      const GM * gm,
+      const typename GM::IndexType functionIndex,
+      const size_t functionType,
+      FUNCTOR & functor
+   ) {
+      if(IX==functionType) {
+         // COPY FUNCTION TO ITERATR
+         typedef typename GM::FunctionTypeList FTypeList;
+         typedef typename meta::TypeAtTypeList<FTypeList,IX>::type FunctionType;
+         typedef typename FunctionType::FunctionShapeIteratorType FunctionShapeIteratorType;
+         
+         const FunctionType & function = gm-> template functions<IX>()[functionIndex];
+         functor(function);
+
+      }
+      else{
+         return FunctionWrapperExecutor<
+            meta::Increment<IX>::value,
+            DX,
+            meta::EqualNumber<
+               meta::Increment<IX>::value,
+               DX
+            >::value
+         >::callFunctor(gm,functionIndex,functionType,functor);
+      }
+   }
+   
+
+   template<size_t IX,size_t DX>
    template<class GM,class ITERATOR>
    inline void
    FunctionWrapperExecutor<IX,DX,false>::getValues
@@ -568,6 +620,19 @@ namespace detail_graphical_model {
       throw RuntimeError("Incorrect function type id.");
    }
    
+   template<size_t IX,size_t DX>
+   template<class GM,class FUNCTOR>
+   inline void
+   FunctionWrapperExecutor<IX,DX,true>::callFunctor
+   (
+      const GM * gm,
+      const typename GM::IndexType functionIndex,
+      const size_t functionType,
+      FUNCTOR & f
+   ) {
+      throw RuntimeError("Incorrect function type id.");
+   }
+
    template<size_t IX,size_t DX>
    template<class GM,class ITERATOR>
    inline typename GM::ValueType
@@ -761,6 +826,24 @@ namespace detail_graphical_model {
    }
    
    
+   template<size_t NUMBER_OF_FUNCTIONS>
+   template<class GM,class FUNCTOR>
+   inline void
+   FunctionWrapper<NUMBER_OF_FUNCTIONS>::callFunctor
+   (
+      const GM *  gm,
+      const typename GM::IndexType functionIndex,
+      const size_t functionType,
+      FUNCTOR & functor
+   ) {
+        FunctionWrapperExecutor<
+             0,
+             NUMBER_OF_FUNCTIONS,
+             opengm::meta::BiggerOrEqualNumber<0,NUMBER_OF_FUNCTIONS>::value
+        >::callFunctor(gm,functionIndex,functionType,functor);
+   }
+
+
    template<size_t NUMBER_OF_FUNCTIONS>
    template<class GM,class ITERATOR>
    inline void

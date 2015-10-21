@@ -16,7 +16,6 @@
 #include "opengm/inference/inference.hxx"
 #include "opengm/inference/movemaker.hxx"
 #include "opengm/inference/external/ad3.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
 
 #include <cmath>
 #include <algorithm>
@@ -31,6 +30,7 @@
 #include "opengm/inference/astar.hxx"
 #include "opengm/inference/lazyflipper.hxx"
 #include <opengm/inference/messagepassing/messagepassing.hxx>
+#include "opengm/inference/visitors/visitors.hxx"
 
 // external (autoinc)
 #include "opengm/inference/external/ad3.hxx"
@@ -56,9 +56,10 @@ public:
    typedef GM GraphicalModelType;
    OPENGM_GM_TYPE_TYPEDEFS;
    typedef Movemaker<GraphicalModelType> MovemakerType;
-   typedef VerboseVisitor<LOC<GM, ACC> > VerboseVisitorType;
-   typedef TimingVisitor<LOC<GM, ACC> > TimingVisitorType;
-   typedef EmptyVisitor<LOC<GM, ACC> > EmptyVisitorType;
+
+   typedef opengm::visitors::VerboseVisitor<LOC<GM,ACC> >   VerboseVisitorType;
+   typedef opengm::visitors::EmptyVisitor<LOC<GM,ACC> >     EmptyVisitorType;
+   typedef opengm::visitors::TimingVisitor<LOC<GM,ACC> >    TimingVisitorType;
 
 
    typedef SubmodelOptimizer<GM,ACC> SubOptimizer;
@@ -226,9 +227,9 @@ LOC<GM, ACC>::LOC
    viAdjacency_(gm.numberOfVariables()),
    usedVi_(gm.numberOfVariables(), false),
    checkedVi_(gm.numberOfVariables(), false),
+   distance_(gm.numberOfVariables()), 
    subOptimizer_(gm),
-   cleanRegion_(gm.numberOfVariables(),false),
-   distance_(gm.numberOfVariables())
+   cleanRegion_(gm.numberOfVariables(),false)
 {
 
    // compute variable adjacency
@@ -456,13 +457,13 @@ LOC<GM, ACC>::infer
    VisitorType& visitor
 ) {
 
-   const UInt64Type autoStop = param_.stopAfterNBadIterations_==0 ? gm_.numberOfVariables() : param_.stopAfterNBadIterations_;
+   //const UInt64Type autoStop = param_.stopAfterNBadIterations_==0 ? gm_.numberOfVariables() : param_.stopAfterNBadIterations_;
    const bool useTrees  = param_.maxTreeRadius_  > 0;
    const bool useBlocks = param_.maxBlockRadius_ > 0;
 
 
 
-   visitor.begin(*this,this->value(),this->bound());
+   visitor.begin(*this);
    // create random generators
    opengm::RandomUniform<size_t> randomVariable(0, gm_.numberOfVariables());
    opengm::RandomUniform<double> random01(0.0, 1.0);
@@ -486,8 +487,8 @@ LOC<GM, ACC>::infer
 
    // all iterations, usualy n*log(n)
 
-   ValueType e1 = movemaker_.value(),e2;
-   size_t badIter=0;
+   //ValueType e1 = movemaker_.value(),e2;
+   //size_t badIter=0;
 
    for(IndexType vi=0;vi<gm_.numberOfVariables();++vi){
       subOptimizer_.setLabel(vi,movemaker_.state(vi));
@@ -513,7 +514,7 @@ LOC<GM, ACC>::infer
             if(useTrees){
                   //std::cout<<"get'n optimize tree model\n";
                   if(param_.treeRuns_>0){
-                     for(size_t tr=0;tr<param_.treeRuns_;++tr){
+                     for(size_t tr=0;tr<(size_t)(param_.treeRuns_);++tr){
                         this->getSubgraphTreeVis(viStart, radiusTree, subgGraphViTree);
                         std::sort(subgGraphViTree.begin(), subgGraphViTree.end());
                         optimizeSubmodel(subgGraphViTree,true);
@@ -550,7 +551,7 @@ LOC<GM, ACC>::infer
             //std::cout<<"after block "<<movemaker_.value()<<"\n";
         
             //std::cout<<"after tree  "<<movemaker_.value()<<"\n";
-            visitor(*this,this->value());
+            visitor(*this);
          }
       }
    }
@@ -575,7 +576,7 @@ LOC<GM, ACC>::infer
       if(useTrees){
             //std::cout<<"get'n optimize tree model\n";
             if(param_.treeRuns_>0){
-               for(size_t tr=0;tr<param_.treeRuns_;++tr){
+               for(size_t tr=0;tr<(size_t)(param_.treeRuns_);++tr){
                   this->getSubgraphTreeVis(viStart, radiusTree, subgGraphViTree);
                   std::sort(subgGraphViTree.begin(), subgGraphViTree.end());
                   optimizeSubmodel(subgGraphViTree,true);
@@ -608,12 +609,12 @@ LOC<GM, ACC>::infer
       //std::cout<<"after block "<<movemaker_.value()<<"\n";
   
       //std::cout<<"after tree  "<<movemaker_.value()<<"\n";
-      visitor(*this,this->value());
+      visitor(*this);
 
 
    }
    std::cout<<"basic inference is done\n";
-   visitor.end(*this,this->value(),this->bound());
+   visitor.end(*this);
    return NORMAL;
 }
 

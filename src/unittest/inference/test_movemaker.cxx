@@ -74,9 +74,10 @@ struct MovemakerTest {
          }
          bool overflow = false;
          while (!overflow) {
-            OPENGM_TEST(
-               movemaker.valueAfterMove(vi.begin(), vi.end(), state.begin())
-               == gm.evaluate(state.begin())
+            OPENGM_TEST_EQUAL_TOLERANCE(
+               movemaker.valueAfterMove(vi.begin(), vi.end(), state.begin()),
+               gm.evaluate(state.begin()),
+               0.00001
                );
             for (size_t j = 0; j < gm.numberOfVariables(); ++j) {
                if (state[j] + 1 < gm.numberOfLabels(j)) {
@@ -172,12 +173,14 @@ struct MovemakerTest {
          Movemaker2 movemaker2(gm2);
          {
             //size_t varToMoveOpt[]={1, 2, 3, 31, 32, 33, 61, 62, 63};
-            size_t varToMoveOpt[]={
+            /*
+              size_t varToMoveOpt[]={
                5, 6, 9, 10,
                5+8, 6+8, 9+8, 10+8,
                5+16, 6+16, 9+16, 10+16,
             };
-            const size_t varToFlip=12;
+            */
+            //const size_t varToFlip=12;
             Movemaker2 movemaker2A = movemaker2;
             Movemaker2 movemaker2B = movemaker2;
             std::vector<size_t> init(gm2.numberOfVariables(), 1);

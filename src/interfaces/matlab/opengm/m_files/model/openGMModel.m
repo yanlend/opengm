@@ -105,6 +105,11 @@ classdef openGMModel < handle
         % add multiple unaries
         function addUnaries(model, variableIDs, functionValues)
             addUnaries(model.modelHandle, variableIDs, functionValues);
+        end  
+
+        % add multiple pairwise terms
+        function addPairwiseTerms(model, variableIDs, functionValues)
+            addPairwiseTerms(model.modelHandle, variableIDs, functionValues);
         end
                         
         % number of variables
@@ -141,10 +146,30 @@ classdef openGMModel < handle
             assert(factorIndex < model.numberOfFactors(), 'factor index has to be smaler than the total number of factors');
             [factorTable, variables] = getFactorTable(model.modelHandle, factorIndex);
         end
+
+        % read Potts mode in compact form
+        function [constTerm, unary, coupling, Adj, flag] = getPottsModel(model)
+           [constTerm, unary, coupling, Adj, flag] = getPottsModel(model.modelHandle);
+        end 
+
+        % set Potts mode in compact form
+        function setPottsModel(model,constTerm, unary, coupling)
+            model.modelHandle = setPottsModel(constTerm, unary, coupling);
+        end 
+
+        % set Multicut mode in compact form
+        function setMulticutModel(model, coupling)
+            model.modelHandle = setMulticutModel(coupling);
+        end
         
         % is grid
         function isgrid = hasGridStructure(model)
             isgrid = isGrid(model.modelHandle);
+        end 
+
+        % evaluate
+        function value = evaluate(model,labeling)
+           value = evaluate(model.modelHandle,labeling);
         end
         
         % has at least one potts factor

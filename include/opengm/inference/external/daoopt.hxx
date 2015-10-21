@@ -5,10 +5,27 @@
 #include "opengm/graphicalmodel/graphicalmodel.hxx"
 #include "opengm/operations/minimizer.hxx"
 #include "opengm/inference/inference.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
+
 
 #include <Main.h>
 #undef UNKNOWN
+
+namespace daoopt{
+
+   template<class V, class I>
+   class OpengmVisitor : public daoopt::VisitorBase{
+   public:
+      OpengmVisitor(V& v, I& i) : visitor(v), inference(i) {};
+      V& visitor;
+      I& inference;
+      virtual bool visit(){
+         if(visitor(inference)==0) {return true;} 
+         else {return false;}
+      };
+   };
+
+}
 
 namespace opengm {
    namespace external {
@@ -30,9 +47,9 @@ namespace opengm {
          typedef GM                              GraphicalModelType;
          typedef opengm::Minimizer               AccumulationType;
          OPENGM_GM_TYPE_TYPEDEFS;
-         typedef EmptyVisitor<DAOOPT<GM> > EmptyVisitorType;
-         typedef VerboseVisitor<DAOOPT<GM> > VerboseVisitorType;
-         typedef TimingVisitor<DAOOPT<GM> > TimingVisitorType;
+         typedef visitors::VerboseVisitor<DAOOPT<GM> > VerboseVisitorType;
+         typedef visitors::EmptyVisitor<DAOOPT<GM> >   EmptyVisitorType;
+         typedef visitors::TimingVisitor<DAOOPT<GM> >  TimingVisitorType;
 
          ///Parameter inherits from daoopt ProgramOptions
          struct Parameter : public daoopt::ProgramOptions {
@@ -162,39 +179,40 @@ namespace opengm {
 
          visitor.begin(*this);
          // TODO check for possible visitor injection method
-
+ visitor(*this);
          if(!main_.runSLS()) {
             throw RuntimeError("Error running DAOOPT SLS.");
          }
-
+visitor(*this);
          if(!main_.findOrLoadOrdering()) {
             throw RuntimeError("Error running DAOOPT find/load ordering.");
          }
-
+ visitor(*this);
          if(!main_.initDataStructs()) {
             throw RuntimeError("Error initializing DAOOPT data structs.");
          }
-
+ visitor(*this);
          if(!main_.compileHeuristic()) {
             throw RuntimeError("Error compiling DAOOPT heuristic.");
          }
-
+ visitor(*this);
          if(!main_.runLDS()) {
             throw RuntimeError("Error running DAOOPT LDS.");
          }
-
+ visitor(*this);
          if(!main_.finishPreproc()) {
             throw RuntimeError("Error finishing DAOOPT preprocessing.");
          }
-
-         if(!main_.runSearch()) {
+visitor(*this);
+         daoopt::OpengmVisitor<VISITOR, DAOOPT<GM> > v(visitor,*this);
+         if(!main_.runSearch(v)) {
             throw RuntimeError("Error running DAOOPT search.");
          }
-
+ visitor(*this);
          if(!main_.outputStats()) {
             throw RuntimeError("Error output DAOOPT stats.");
          }
-
+ visitor(*this);
          visitor.end(*this);
          return NORMAL;
       }
@@ -204,8 +222,13 @@ namespace opengm {
          const daoopt::Problem& problem = main_.getProblem();
 
          const std::vector<daoopt::val_t>& assignment = problem.getSolutionAssg();
-         arg.assign(assignment.begin(), assignment.end()-1);
-
+         if(assignment.size() == gm_.numberOfVariables()){
+            arg.assign(assignment.begin(), assignment.end()-1);
+         }
+         else{
+            std::cout <<"Warning: DAOOPT return labeling of wrong size!"<<std::endl;
+            arg.resize(gm_.numberOfVariables(),0);
+         }
          return NORMAL;
       }
 
@@ -221,7 +244,11 @@ namespace opengm {
          //return gm_.evaluate(c);
 
          const daoopt::Problem& problem = main_.getProblem();
-         return static_cast<ValueType>(-problem.getSolutionCost());
+         const ValueType v =  static_cast<ValueType>(-problem.getSolutionCost());
+         if(isnan(v))
+            return  std::numeric_limits<ValueType>::infinity();
+         else
+            return v;
       }
    } // namespace external
 } // namespace opengm

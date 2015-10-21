@@ -10,11 +10,11 @@
 #include <opengm/inference/trws/utilities2.hxx>
 #include <opengm/graphicalmodel/graphicalmodel_factor_accumulator.hxx>
 
-#ifdef WITH_HDF5
 
-#include <opengm/graphicalmodel/graphicalmodel_hdf5.hxx>
+//#ifdef WITH_HDF5
+//#include <opengm/inference/auxiliary/lp_reparametrization_hdf5.hxx>
+//#endif
 
-#endif
 
 namespace opengm{
 
@@ -105,6 +105,8 @@ public:
 		typename VarIdMapType::const_iterator it = _localIdMap[factorId].find(varIndex);
 		trws_base::exception_check(it!=_localIdMap[factorId].end(),"LPReparametrisationStorage:localId() - factor and variable are not connected!");
 		return it->second;};
+
+	const GM& graphicalModel()const{return _gm;}
 
 	template<class VECTOR>
 	void serialize(VECTOR* pserialization)const;
@@ -204,7 +206,7 @@ void LPReparametrisationStorage<GM>::deserialize(const VECTOR& serialization)
 	 if (i!=serialization.size())
 		 throw std::runtime_error("LPReparametrisationStorage<GM>::deserialize(): Size of serialization is greater than required for the graphical model! Deserialization failed.");
 }
-
+/*
 #ifdef WITH_HDF5
 
 template<class GM>
@@ -230,6 +232,7 @@ void load(LPReparametrisationStorage<GM>* prepa, const std::string& filename, co
 };
 
 #endif
+*/
 
 template<class GM, class REPASTORAGE>
 class ReparametrizationView : public opengm::FunctionBase<ReparametrizationView<GM,REPASTORAGE>,
@@ -284,6 +287,7 @@ public:
 	typedef typename GraphicalModelType::IndexType IndexType;
 	typedef typename GraphicalModelType::LabelType LabelType;
 	typedef typename std::vector<bool> MaskType;
+	typedef typename std::vector<MaskType>  ImmovableLabelingType;
 	typedef LPReparametrisationStorage<GM> RepaStorageType;
 	typedef opengm::GraphicalModel<ValueType,opengm::Adder,opengm::ReparametrizationView<GM,RepaStorageType>,
 					 opengm::DiscreteSpace<IndexType,LabelType> > ReparametrizedGMType;
@@ -295,6 +299,7 @@ public:
 	//TODO: To implement
 	virtual void getArcConsistency(std::vector<bool>* pmask,std::vector<LabelType>* plabeling,IndexType modelorder=2);
 	virtual void reparametrize(const MaskType* pmask=0){};
+	void reparametrize(const ImmovableLabelingType& immovableLabeling){};
 	virtual void getReparametrizedModel(ReparametrizedGMType& gm)const;
 	const GM& graphicalModel()const{return _gm;}
 private:
@@ -364,24 +369,6 @@ void LPReparametrizer<GM,ACC>::getArcConsistency(std::vector<bool>* pmask,std::v
 
 	}
 
-/*
-	//385=200+9*19+7*2
-	ValueType magicNum=200+9*19+7*2;
-	//std::cout << "97,98? : "<<repagm[magicNum].variableIndex(0)<<","<<repagm[magicNum].variableIndex(1) <<std::endl;
-	std::vector<ValueType> lab(2);
-	lab[0]=locallyOptimalLabels[97];
-	lab[1]=locallyOptimalLabels[98];
-	std::vector<ValueType> lab1(2,1);
-	size_t t0=0,t1=1;
-	std::cout << "385: max="<<worstValue[magicNum]<< ", optimalVal="<<optimalValues[magicNum]
-	          <<", optLabel[97]="<<locallyOptimalLabels[97]<<", optLabel[98]="<<locallyOptimalLabels[98]
-	          <<", optimalLabeling="<<optimalLabelings[magicNum]
-	          <<", labeling[97,98]="<<repagm[magicNum](lab.begin())
-	          <<", labeling[97,98](1,1)="<< repagm[magicNum](lab1.begin())
-	          <<", val[97]="<<repagm[97](&t0)<<","<<repagm[97](&t1)
-	          <<", val[98]="<<repagm[98](&t0)<<","<<repagm[98](&t1)
-	          << std::endl;
-*/
 /**	for (unary factors and the optimal label)
 	{
 	 for (each NON-nary factor)
@@ -390,8 +377,6 @@ void LPReparametrizer<GM,ACC>::getArcConsistency(std::vector<bool>* pmask,std::v
 		    mark the node as NON-consistent
 	}
 **/
-
-//	std::cout << "Second cycle:" <<std::endl;
 
 	for (IndexType i=0;i<unaryFactors.size();++i)
 	{
@@ -409,7 +394,7 @@ void LPReparametrizer<GM,ACC>::getArcConsistency(std::vector<bool>* pmask,std::v
 
 		IndexType localVarIndex= std::find(factor.variableIndicesBegin(),factor.variableIndicesEnd(),var) -factor.variableIndicesBegin();//!>find the place of the variable
 
-		OPENGM_ASSERT(localVarIndex != (factor.variableIndicesEnd()-factor.variableIndicesBegin()));
+		OPENGM_ASSERT((IndexType)localVarIndex != (IndexType)(factor.variableIndicesEnd()-factor.variableIndicesBegin()));
 
 		if (optimalLabelings[factorId][localVarIndex]==locallyOptimalLabels[var]) continue; //!>if the label belongs to the optimal configuration of the factor
 

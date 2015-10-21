@@ -131,7 +131,7 @@ def denoiseModel(
             gm.addFactors(fids[l],notInInpaint.astype(opengm.index_type))
 
     # add ONE second order function
-    f=opengm.differenceFunction(shape=[numLabels,numLabels],norm=2,weight=weight)
+    f=opengm.differenceFunction(shape=[numLabels,numLabels],norm=2,weight=weight,truncate=truncate)
     fid=gm.addFunction(f)
     vis2Order=opengm.secondOrderGridVis(shape[0],shape[1],True)
     # add all second order factors
@@ -166,14 +166,14 @@ if __name__ == "__main__":
     gm,startingPoint=denoiseModel(img,norm=norm,weight=weight,inpaintPixels=numpy.where(img==0),
                                   numLabels=numLabels,randInpaitStartingPoint=True)
 
-    inf=opengm.inference.Pbp(gm,parameter=opengm.InfParam(steps=10))
+    inf=opengm.inference.Imc(gm,parameter=opengm.InfParam())
 
 
     print "inf"
     inf.setStartingPoint(inf.arg())
         # set up visitor
     callback=PyCallback(shape,numLabels)
-    visitor=inf.pythonVisitor(callback,visitNth=1000)
+    visitor=inf.pythonVisitor(callback,visitNth=1)
     inf.infer(visitor) 
     # get the result
     arg=inf.arg()

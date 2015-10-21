@@ -3,6 +3,7 @@
 #define OPENGM_DUALDECOMPOSITION_BASE_HXX
 
 #include <vector>
+#include <set>
 #include <string>
 #include <iostream>
 #include <cmath>
@@ -21,13 +22,17 @@ namespace opengm {
 
    class DualDecompositionBaseParameter{
    public:
-      enum DecompositionId {MANUAL, TREE, SPANNINGTREES, BLOCKS};
+      enum DecompositionId {MANUAL, TREE, SPANNINGTREES, BLOCKS, KFANS, MANUALVARCLOSE, MANUALVAROPEN};
       enum DualUpdateId {ADAPTIVE, STEPSIZE, STEPLENGTH, KIEWIL};
       
       /// type of decomposition that should be used (independent of model structure)
       DecompositionId decompositionId_;
       /// decomposition of the model (needs to fit to the model structure)
       GraphicalModelDecomposition decomposition_;
+      /// vectors of factors of the subproblems - used form manual decomposition only.
+      std::vector<std::vector<size_t> > subFactors_; 
+      /// vectors of variables of the subproblems - used form manual variable decomposition only.
+      std::vector<std::set<size_t> > subVariables_;
       /// maximum order of dual variables (order of the corresponding factor)
       size_t maximalDualOrder_;
       /// number of blocks for block decomposition
@@ -40,6 +45,10 @@ namespace opengm {
       double minimalRelAccuracy_;
       /// number of threads for primal problems
       size_t numberOfThreads_;
+      /// use filling to generate full labelings from non-spanning subproblems. If one labeling is generated for all non-spanning subproblems
+      bool fillSubLabelings_;
+      /// size of inner clique of kfan
+      size_t k_;
 
       // Update parameters
       double stepsizeStride_;    //updateStride_;
@@ -59,14 +68,15 @@ namespace opengm {
          minimalAbsAccuracy_(0.0), 
          minimalRelAccuracy_(0.0),
          numberOfThreads_(1),
+         fillSubLabelings_(false),
          stepsizeStride_(1),
          stepsizeScale_(1),
          stepsizeExponent_(0.5),
          stepsizeMin_(0),
          stepsizeMax_(std::numeric_limits<double>::infinity()),
          stepsizePrimalDualGapStride_(false),
-         stepsizeNormalizedSubgradient_(false)
-         
+         stepsizeNormalizedSubgradient_(false),
+         k_(4)  
          {};
 
       double getStepsize(size_t iteration, double primalDualGap, double subgradientNorm){
@@ -243,6 +253,34 @@ namespace opengm {
          para.decomposition_.complete();
          para.maximalDualOrder_ = 1;
       }
+      if(para.decompositionId_ == DualDecompositionBaseParameter::KFANS){
+         opengm::GraphicalModelDecomposer<GmType> decomposer;
+         para.decomposition_ = decomposer.decomposeIntoKFans(gm_,para.k_);
+         para.decomposition_.reorder();
+         para.decomposition_.complete();
+         para.maximalDualOrder_ = 1;
+      }
+      if(para.decompositionId_ == DualDecompositionBaseParameter::MANUAL){
+         opengm::GraphicalModelDecomposer<GmType> decomposer;
+         para.decomposition_ = decomposer.decomposeManual(gm_,para.subFactors_);
+         para.decomposition_.reorder();
+         para.decomposition_.complete();
+         para.maximalDualOrder_ = 1;
+      }
+      if(para.decompositionId_ == DualDecompositionBaseParameter::MANUALVARCLOSE){
+         opengm::GraphicalModelDecomposer<GmType> decomposer;
+         para.decomposition_ = decomposer.decomposeIntoClosedBlocks(gm_,para.subVariables_);
+         para.decomposition_.reorder();
+         para.decomposition_.complete();
+         para.maximalDualOrder_ = 1;
+      } 
+      if(para.decompositionId_ == DualDecompositionBaseParameter::MANUALVAROPEN){
+         opengm::GraphicalModelDecomposer<GmType> decomposer;
+         para.decomposition_ = decomposer.decomposeIntoOpenBlocks(gm_,para.subVariables_);
+         para.decomposition_.reorder();
+         para.decomposition_.complete();
+         para.maximalDualOrder_ = 1;
+      }
 
       OPENGM_ASSERT(para.decomposition_.isValid(gm_));
     
@@ -375,6 +413,8 @@ namespace opengm {
       std::vector<LabelType> & upperState
       )
    {
+      bool useFilling = parameter().fillSubLabelings_;
+
       // Calculate lower-bound 
       lowerBound=0;
       for(size_t subModelId=0; subModelId<subGm_.size(); ++subModelId){ 
@@ -407,45 +447,52 @@ namespace opengm {
       }
 
       // Build Primal-Candidates
-      std::vector<std::vector<LabelType> > args(subGm_.size());
-      bool somethingToFill = false;
+
+      // -- Build/Evaluate default canidate
+      std::vector<std::vector<IndexType> > subVariable2TrueVariable(subGm_.size());
+      if(useFilling){
+         for(size_t s=0; s<subGm_.size();++s){
+            subVariable2TrueVariable[s].resize(subGm_[s].numberOfVariables());
+         }
+      }
+      std::vector<LabelType> defaultLabel(gm_.numberOfVariables());
+      for(size_t varId=0; varId<gm_.numberOfVariables(); ++varId){
+         std::map<LabelType,size_t> labelCount;
+         for(typename SubVariableListType::const_iterator its = subVariableLists[varId].begin(); its!=subVariableLists[varId].end();++its){
+            const size_t& subModelId    = (*its).subModelId_;
+            const size_t& subVariableId = (*its).subVariableId_;
+            if(useFilling){
+               subVariable2TrueVariable[subModelId][subVariableId] = varId;
+            }
+            ++labelCount[subStates[subModelId][subVariableId]]; 
+         } 
+         size_t c=0;
+         for(typename std::map<LabelType,size_t>::iterator it=labelCount.begin(); it!=labelCount.end(); ++it){
+            if( it->second > c ){
+               c = it->second;
+               defaultLabel[varId] = it->first;
+            }
+         }
+      }
+      ac(gm_.evaluate(defaultLabel),defaultLabel);
+   
+
+      // -- Build/Evaluate subproblem canidates 
+      size_t a;
       for(size_t subModelId=0; subModelId<subGm_.size(); ++subModelId){ 
-         if(modelWithSameVariables_[subModelId] == Tribool::False){
-            args[subModelId].assign(gm_.numberOfVariables(),std::numeric_limits<LabelType>::max());
-            somethingToFill = true;
+         if(modelWithSameVariables_[subModelId] == Tribool::False){ 
+            if(useFilling){
+               std::vector<LabelType> label(defaultLabel);
+               for(size_t i=0; i<subStates[subModelId].size(); ++i){
+                  label[subVariable2TrueVariable[subModelId][i]]=subStates[subModelId][i];
+               }
+               ac(gm_.evaluate(label),label);
+            }
          }
          else{
             ac(gm_.evaluate(subStates[subModelId]),subStates[subModelId]);
          }
       } 
-
-      if(somethingToFill){
-         for(size_t varId=0; varId<gm_.numberOfVariables(); ++varId){
-            for(typename SubVariableListType::const_iterator its = subVariableLists[varId].begin();
-                its!=subVariableLists[varId].end();++its){
-               const size_t& subModelId    = (*its).subModelId_;
-               const size_t& subVariableId = (*its).subVariableId_;
-               if(modelWithSameVariables_[subModelId] == Tribool::False){
-                  args[subModelId][varId] = subStates[subModelId][subVariableId]; 
-               }      
-            }
-            for(size_t subModelId=0; subModelId<subGm_.size(); ++subModelId){
-               if(modelWithSameVariables_[subModelId] == Tribool::False && 
-                  args[subModelId][varId] == std::numeric_limits<LabelType>::max())
-               {
-                  const size_t& aSubModelId    = subVariableLists[varId].front().subModelId_; 
-                  const size_t& aSubVariableId = subVariableLists[varId].front().subVariableId_;
-                  args[subModelId][varId] = subStates[aSubModelId][aSubVariableId];   
-               }
-            }
-         }
-         for(size_t subModelId=0; subModelId<subGm_.size(); ++subModelId){
-            if(modelWithSameVariables_[subModelId] == Tribool::False){
-               ac(gm_.evaluate(args[subModelId]),args[subModelId]);
-            }
-         }
-      }
-      
       upperBound = ac.value();
       ac.state(upperState);
    }

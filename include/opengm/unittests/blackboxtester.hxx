@@ -2,6 +2,12 @@
 #ifndef OPENGM_TEST_INFERENCE_BLACKBOXTESTER_HXX
 #define OPENGM_TEST_INFERENCE_BLACKBOXTESTER_HXX
 
+
+#ifdef OPENGM_TESTFILE
+#define OPENGM_TESTFILE_FILENAME "/tmp/model.h5"
+#include <opengm/graphicalmodel/graphicalmodel_hdf5.hxx>
+#endif
+
 #include <vector>
 #include <typeinfo>
 
@@ -41,6 +47,7 @@ namespace opengm {
       }
    }
 
+
    template<class GM>
    template<class INF>
    void InferenceBlackBoxTester<GM>::test(const typename INF::Parameter& infPara, bool tValue, bool tArg, bool tMarg, bool tFacMarg)
@@ -57,6 +64,10 @@ namespace opengm {
          for(size_t n = 0; n < numTests; ++n) {
             std::cout << "*" << std::flush;
             GraphicalModelType gm = testList[testId]->getModel(n);
+#ifdef OPENGM_TESTFILE
+            std::cout<< "save test-file" << std::endl; 
+            opengm::hdf5::save(gm,OPENGM_TESTFILE_FILENAME,"gm");
+#endif
             //Run Algorithm
             bool exceptionFlag = false;
             std::vector<typename GM::LabelType> state;
@@ -73,11 +84,11 @@ namespace opengm {
                   { 
                      ValueType bound = inf.bound();
                      ValueType value = inf.value();
-                     ValueType value2;
+                     ValueType value2 = 0;
                      if(typeid(AccType) == typeid(opengm::Minimizer))
-                        value2 = value + std::min<ValueType>(1e20,std::max(1e-4,fabs(value)))*1e-6;
+                        value2 = value + std::min<ValueType>(1e20,std::max<ValueType>(1e-4,fabs(value)))*1e-6;
                      if(typeid(AccType) == typeid(opengm::Maximizer))
-                        value2 = value - std::min<ValueType>(1e20,std::max(1e-4,fabs(value)))*1e-6;
+                        value2 = value - std::min<ValueType>(1e20,std::max<ValueType>(1e-4,fabs(value)))*1e-6;
                    
                      std::cout << "value = " << value << "  ,  bound = " << bound << std::endl;
                      OPENGM_TEST(AccType::bop(bound,value2)|| bound==value2);
@@ -91,22 +102,26 @@ namespace opengm {
                      for(size_t i = 0; i < gm.numberOfVariables(); ++i) {
                         OPENGM_TEST(optimalState[i]<gm.numberOfLabels(i));
                      }
-                     OPENGM_TEST_EQUAL_TOLERANCE(gm.evaluate(state), gm.evaluate(optimalState), 0.00001);
+                     OPENGM_TEST_EQUAL_TOLERANCE(gm.evaluate(state), gm.evaluate(optimalState), 0.00001); 
                      //testEqualSequence(states1.begin(), states1.end(), states2.begin());
                   }
                }
-               //if(typeid(AccType) == typeid(opengm::Integrator)) {
-                  //for(size_t varId = 0; varId < gm.numberOfVariables(); ++varId) {
-                  //   OPENGM_TEST(inf.marginal(varId)==opengm::NORMAL);
-                  //}
-                  //for(size_t factorId = 0; factorId < gm.numberOfFactors(); ++factorId) {
-                  //   OPENGM_TEST(inf.factorMarginal(factorId)==opengm::NORMAL);
-                  //}
-               //}
-               } catch(std::exception& e) {
-                 exceptionFlag = true;
-                 std::cout << e.what() <<std::endl;
+               if(tMarg){
+                  typename GM::IndependentFactorType out;
+                  for(size_t varId = 0; varId < gm.numberOfVariables(); ++varId) {
+                     OPENGM_TEST(inf.marginal(varId,out)==opengm::NORMAL);
+                  }
                }
+               if(tFacMarg){
+                  typename GM::IndependentFactorType out;
+                  for(size_t factorId = 0; factorId < gm.numberOfFactors(); ++factorId) {
+                     OPENGM_TEST(inf.factorMarginal(factorId,out)==opengm::NORMAL);
+                  }
+               } 
+            } catch(std::exception& e) {
+               exceptionFlag = true;
+               std::cout << e.what() <<std::endl;
+            }
             if(behaviour == opengm::FAIL) {
                OPENGM_TEST(exceptionFlag);
             }else{

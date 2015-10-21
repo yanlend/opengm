@@ -14,7 +14,8 @@
 #include "opengm/utilities/tribool.hxx"
 #include "opengm/utilities/metaprogramming.hxx"
 #include "opengm/operations/maximizer.hxx"
-#include "opengm/inference/visitors/visitor.hxx"
+#include "opengm/operations/integrator.hxx"
+#include "opengm/inference/visitors/visitors.hxx"
 
 namespace opengm {
 
@@ -57,11 +58,11 @@ public:
    typedef typename UPDATE_RULES::VariableHullType VariableHullType;
 
    /// Visitor
-   typedef VerboseVisitor<MessagePassing<GM, ACC, UPDATE_RULES, DIST> > VerboseVisitorType;
+   typedef visitors::VerboseVisitor<MessagePassing<GM, ACC, UPDATE_RULES, DIST> > VerboseVisitorType;
    /// Visitor
-   typedef TimingVisitor<MessagePassing<GM, ACC, UPDATE_RULES, DIST> > TimingVisitorType;
+   typedef visitors::TimingVisitor<MessagePassing<GM, ACC, UPDATE_RULES, DIST> > TimingVisitorType;
    /// Visitor
-   typedef EmptyVisitor<MessagePassing<GM, ACC, UPDATE_RULES, DIST> > EmptyVisitorType;
+   typedef visitors::EmptyVisitor<MessagePassing<GM, ACC, UPDATE_RULES, DIST> > EmptyVisitorType;
 
    struct Parameter {
       typedef typename  UPDATE_RULES::SpecialParameterType SpecialParameterType;
@@ -87,7 +88,8 @@ public:
       ValueType damping_;
       bool inferSequential_;
       std::vector<size_t> sortedNodeList_;
-      bool useNormalization_;
+      opengm::Tribool useNormalization_;
+      //bool useNormalization_;
       SpecialParameterType specialParameter_;
       opengm::Tribool isAcyclic_;
    };
@@ -122,6 +124,7 @@ public:
       InferenceTermination infer(VisitorType&);
    void propagate(const ValueType& = 0);
    InferenceTermination arg(std::vector<LabelType>&, const size_t = 1) const;
+   void setMaxSteps(size_t maxSteps) {parameter_.maximumNumberOfSteps_ = maxSteps;}
    //InferenceTermination bound(ValueType&) const;
    //ValueType bound() const;
  
@@ -221,7 +224,8 @@ MessagePassing<GM, ACC, UPDATE_RULES, DIST>::infer
    VisitorType& visitor
 ) {
    if (parameter_.isAcyclic_ == opengm::Tribool::True) {
-      parameter_.useNormalization_=false;
+      if(parameter_.useNormalization_==opengm::Tribool::Maybe)
+        parameter_.useNormalization_=false;	
       inferAcyclic(visitor);
    } else if (parameter_.isAcyclic_ == opengm::Tribool::False) {
       if (parameter_.inferSequential_) {
@@ -232,7 +236,8 @@ MessagePassing<GM, ACC, UPDATE_RULES, DIST>::infer
    } else { //triibool maby
       if (gm_.isAcyclic()) {
          parameter_.isAcyclic_ = opengm::Tribool::True;
-         parameter_.useNormalization_=false;
+         if(parameter_.useNormalization_==opengm::Tribool::Maybe)
+            parameter_.useNormalization_=false;
          inferAcyclic(visitor);
       } else {
          parameter_.isAcyclic_ = opengm::Tribool::False;
@@ -255,7 +260,7 @@ template<class GM, class ACC, class UPDATE_RULES, class DIST>
 inline void
 MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferAcyclic() { 
    EmptyVisitorType v;
-   return infer(v);
+   return inferAcyclic(v);
 }
 
 /// \brief inference for acyclic graphs.
@@ -346,7 +351,8 @@ MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferAcyclic
             }
          }
       }
-      visitor(*this);
+      if(visitor(*this)!=0)
+         break;
    }
    visitor.end(*this);
    
@@ -370,7 +376,7 @@ inline void MessagePassing<GM, ACC, UPDATE_RULES, DIST>::propagate
 template<class GM, class ACC, class UPDATE_RULES, class DIST>
 inline void MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferParallel() {
    EmptyVisitorType v;
-   return infer(v);
+   return inferParallel(v);
 }
 
 /// \brief inference with parallel message passing.
@@ -401,7 +407,8 @@ inline void MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferParallel
          if (factorHulls_[i].numberOfBuffers() >= 2)// messages from factors of order <2 do not change
             factorHulls_[i].propagateAll(damping, parameter_.useNormalization_);
       }
-      visitor(*this);
+      if(visitor(*this)!=0)
+         break;
       c = convergence();
       if (c < parameter_.bound_) {
          break;
@@ -422,7 +429,7 @@ inline void MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferParallel
 template<class GM, class ACC, class UPDATE_RULES, class DIST>
 inline void MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferSequential() { 
    EmptyVisitorType v;
-   return infer(v);
+   return inferSequential(v);
 }
 
 /// \brief inference with sequential message passing.
@@ -503,7 +510,12 @@ inline void MessagePassing<GM, ACC, UPDATE_RULES, DIST>::inferSequential
             variableHulls_[variableId].propagateAll(gm_, damping, false);
          }
       }
-      visitor(*this);
+      if(visitor(*this)!=0)
+         break;
+      ValueType c = convergence();
+      if (c < parameter_.bound_) {
+         break;
+      }
     
    } 
    visitor.end(*this);
